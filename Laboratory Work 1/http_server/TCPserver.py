@@ -45,6 +45,7 @@ class HTTPServer(TCPServer):
     status_codes = {
         200: 'OK',
         404: 'Not Found',
+        501: 'Not Implemented',
     }
 
     def handle_request(self, data):
