@@ -1,4 +1,5 @@
 import socket
+import os
 
 class TCPServer:
     def __init__(self, host='127.0.0.1', port=8888):
@@ -75,7 +76,25 @@ class HTTPServer(TCPServer):
         return b"".join([response_line, response_headers, blank_line, response_body])
     
     def handle_GET(self, request):
-        pass
+        filename = request.uri.strip('/') # remove the slash from the request URI
+
+        if os.path.exists(filename):
+            response_line = self.response_line(status_code=200)
+            response_headers = self.response_headers()
+
+            with open(filename, 'rb') as f:
+                response_body = f.read()
+        else:
+            response_line = self.response_line(status_code=404)
+            response_headers = self.response_headers()
+            response_body = b"<h1>404 Not Found</h1>"
+
+        blank_line = b"\r\n"
+
+        return b"".join([response_line, response_headers, blank_line, response_body])
+
+
+
 
     def response_line(self, status_code):
         """Returns response line"""
