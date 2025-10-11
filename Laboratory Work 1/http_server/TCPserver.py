@@ -51,22 +51,17 @@ class HTTPServer(TCPServer):
         """Handles the incoming request.
         Compiles and returns the response
         """
-        response_line = self.response_line(status_code=200)
+        request = HTTPRequest(data)
 
-        response_headers = self.response_headers()
+        handler = getattr(self, 'handle_%s' % request.method)
 
-        blank_line = b"\r\n"
+        response = handler(request)
 
-        response_body = b"""
-            <html>
-                <body>
-                    <h1>Request received!</h1>
-                <body>
-            </html>
-        """
-
-        return b"".join([response_line, response_headers, blank_line, response_body])
+        return response
     
+    def handle_GET(self, request):
+        pass
+
     def response_line(self, status_code):
         """Returns response line"""
         reason = self.status_codes[status_code]
@@ -90,6 +85,32 @@ class HTTPServer(TCPServer):
             headers += "%s: %s\r\n" % (h, headers_copy[h])
 
         return headers.encode()
+    
+class HTTPRequest:
+    def __init__(self, data):
+        self.method = None
+        self.uri = None
+        self.http_version = "1.1"
+
+        # call self.parse() method to parse the request data
+        self.parse(data)
+
+    def parse(self, data):
+        lines = data.split(b"\r\n")
+
+        request_line = lines[0]
+
+        words = request_line.split(b" ")
+
+        self.method = words[0].decode()
+
+        if len(words) > 1:
+            # we put this in an if-block because sometimes
+            # browsers don't send uri for homepage
+            self.uri = words[1].decode()
+
+        if len(words) > 2:
+            self.http_version = words[2]
     
 if __name__ == '__main__':
     server = HTTPServer()
