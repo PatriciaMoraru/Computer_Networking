@@ -51,25 +51,46 @@ class HTTPServer(TCPServer):
         """Handles the incoming request.
         Compiles and returns the response
         """
-        response_line = b"HTTP/1.1 200 OK\r\n"
+        response_line = self.response_line(status_code=200)
 
-        headers = b"".join([
-            b"Server: Crude Server\r\n",
-            b"Content-Type: text/html\r\n"
-        ])
+        response_headers = self.response_headers()
 
         blank_line = b"\r\n"
 
-        response_body = b"""<html>
-            <body>
-            <h1>Request received!</h1>
-            <body>
+        response_body = b"""
+            <html>
+                <body>
+                    <h1>Request received!</h1>
+                <body>
             </html>
         """
 
-        return b"".join([response_line, headers, blank_line, response_body])
-        
+        return b"".join([response_line, response_headers, blank_line, response_body])
+    
+    def response_line(self, status_code):
+        """Returns response line"""
+        reason = self.status_codes[status_code]
+        line = "HTTP/1.1 %s %s\r\n" % (status_code, reason)
 
+        return line.encode() # calling encode to convert str to bytes"
+    
+    def response_headers(self, extra_headers=None):
+        """Returns headers
+        The 'extra_headers' can be a dict for sending
+        extra headers for the current response
+        """
+        headers_copy = self.headers.copy() # make a local copy of headers
+
+        if extra_headers:
+            headers_copy.update(extra_headers)
+
+        headers = ""
+
+        for h in headers_copy:
+            headers += "%s: %s\r\n" % (h, headers_copy[h])
+
+        return headers.encode()
+    
 if __name__ == '__main__':
     server = HTTPServer()
     server.start()
