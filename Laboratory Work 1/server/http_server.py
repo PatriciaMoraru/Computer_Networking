@@ -1,7 +1,8 @@
 import os
 import mimetypes
-from tcp_server import TCPServer
-from request import HTTPRequest
+from .tcp_server import TCPServer
+from .request import HTTPRequest
+from .pathing import resolve_safe
 
 
 class HTTPServer(TCPServer):
@@ -43,27 +44,53 @@ class HTTPServer(TCPServer):
         return b"".join([response_line, response_headers, blank_line, response_body])
     
     def handle_GET(self, request):
-        filename = request.uri.strip('/') # remove the slash from the request URI
-
-        if os.path.exists(filename):
-            response_line = self.response_line(status_code=200)
-            # find out a file's MIME type
-            # if nothing is found, just send `text/html`
-            content_type = mimetypes.guess_type(filename)[0] or 'text/html'
-
-            extra_headers = {'Content-Type': content_type}
-            response_headers = self.response_headers(extra_headers)
-
-            with open(filename, 'rb') as f:
-                response_body = f.read()
-        else:
+        # 1) Resolve the requested URI safely under the configured ROOT
+        candidate = resolve_safe(request.uri)
+        if candidate is None:
+            # outside root or ROOT not set
             response_line = self.response_line(status_code=404)
             response_headers = self.response_headers()
             response_body = b"<h1>404 Not Found</h1>"
+            blank_line = b"\r\n"
+            return b"".join([response_line, response_headers, blank_line, response_body])
 
+        # 2) If the path is a directory, temporarily serve /index.html from it
+        if candidate.is_dir():
+            index_path = candidate / "index.html"
+            if index_path.exists() and index_path.is_file():
+                candidate = index_path
+            else:
+                response_line = self.response_line(status_code=404)
+                response_headers = self.response_headers()
+                response_body = b"<h1>404 Not Found</h1>"
+                blank_line = b"\r\n"
+                return b"".join([response_line, response_headers, blank_line, response_body])
+
+        # 3) Serve the file if it exists and is a regular file
+        if candidate.exists() and candidate.is_file():
+            content_type = mimetypes.guess_type(str(candidate))[0] or "application/octet-stream"
+            with open(candidate, "rb") as f:
+                body = f.read()
+
+            extra_headers = {
+                "Content-Type": content_type,
+                "Content-Length": str(len(body)),
+                "Connection": "close",
+                "Server": "Crude Server"
+            }
+            response_line = self.response_line(status_code=200)
+            response_headers = self.response_headers(extra_headers)
+            blank_line = b"\r\n"
+            return b"".join([response_line, response_headers, blank_line, body])
+
+        # 4) Fallback: not found
+        response_line = self.response_line(status_code=404)
+        response_headers = self.response_headers()
+        response_body = b"<h1>404 Not Found</h1>"
         blank_line = b"\r\n"
 
         return b"".join([response_line, response_headers, blank_line, response_body])
+
 
     def response_line(self, status_code):
         """Returns response line"""
