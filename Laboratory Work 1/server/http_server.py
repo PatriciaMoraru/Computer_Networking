@@ -8,11 +8,12 @@ from .pathing import resolve_safe
 class HTTPServer(TCPServer):
     headers = {
         'Server': 'Crude Server',
-        'Content-Type': 'text/html',
+        'Content-Type': 'text/html; charset=utf-8',
     }
 
     status_codes = {
         200: 'OK',
+        400: 'Bad Request',
         404: 'Not Found',
         501: 'Not Implemented',
     }
@@ -21,7 +22,10 @@ class HTTPServer(TCPServer):
         """Handles the incoming request.
         Compiles and returns the response
         """
-        request = HTTPRequest(data)
+        try:
+            request = HTTPRequest(data)
+        except ValueError:
+            return self.HTTP_400_handler()
 
         try:
             handler = getattr(self, 'handle_%s' % request.method)
@@ -31,15 +35,40 @@ class HTTPServer(TCPServer):
         response = handler(request)
 
         return response
-    
-    def HTTP_501_handler(self, request):
-        response_line = self.response_line(status_code=501)
 
-        response_headers = self.response_headers()
+    def HTTP_400_handler(self):
+        response_body = b"<h1>400 Bad Request</h1>"
+        extra = {
+            "Content-Length": str(len(response_body)),
+            "Connection": "close",
+        }
 
+        response_line = self.response_line(status_code=400)
+        response_headers = self.response_headers(extra)
         blank_line = b"\r\n"
 
+        return b"".join([response_line, response_headers, blank_line, response_body])
+    
+    def HTTP_404_handler(self):
+        response_body = b"<h1>404 Not Found</h1>"
+        extra = {
+            "Content-Length": str(len(response_body)),
+            "Connection": "close",
+        }
+        response_line = self.response_line(status_code=404)
+        response_headers = self.response_headers(extra)
+        blank_line = b"\r\n"
+        return b"".join([response_line, response_headers, blank_line, response_body])
+
+    def HTTP_501_handler(self, request):
         response_body = b"<h1>501 Not Implemented</h1>"
+        extra = {
+            "Content-Length": str(len(response_body)),
+            "Connection": "close",
+        }
+        response_line = self.response_line(status_code=501)
+        response_headers = self.response_headers(extra)
+        blank_line = b"\r\n"
 
         return b"".join([response_line, response_headers, blank_line, response_body])
     
@@ -48,24 +77,14 @@ class HTTPServer(TCPServer):
         candidate = resolve_safe(request.uri)
         if candidate is None:
             # outside root or ROOT not set
-            response_line = self.response_line(status_code=404)
-            response_headers = self.response_headers()
-            response_body = b"<h1>404 Not Found</h1>"
-            blank_line = b"\r\n"
-            return b"".join([response_line, response_headers, blank_line, response_body])
-
+            return self.HTTP_404_handler()
         # 2) If the path is a directory, temporarily serve /index.html from it
         if candidate.is_dir():
             index_path = candidate / "index.html"
             if index_path.exists() and index_path.is_file():
                 candidate = index_path
             else:
-                response_line = self.response_line(status_code=404)
-                response_headers = self.response_headers()
-                response_body = b"<h1>404 Not Found</h1>"
-                blank_line = b"\r\n"
-                return b"".join([response_line, response_headers, blank_line, response_body])
-
+                return self.HTTP_404_handler()
         # 3) Serve the file if it exists and is a regular file
         if candidate.exists() and candidate.is_file():
             content_type = mimetypes.guess_type(str(candidate))[0] or "application/octet-stream"
@@ -84,13 +103,7 @@ class HTTPServer(TCPServer):
             return b"".join([response_line, response_headers, blank_line, body])
 
         # 4) Fallback: not found
-        response_line = self.response_line(status_code=404)
-        response_headers = self.response_headers()
-        response_body = b"<h1>404 Not Found</h1>"
-        blank_line = b"\r\n"
-
-        return b"".join([response_line, response_headers, blank_line, response_body])
-
+        return self.HTTP_404_handler()
 
     def response_line(self, status_code):
         """Returns response line"""

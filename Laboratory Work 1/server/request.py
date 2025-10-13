@@ -9,17 +9,21 @@ class HTTPRequest:
 
     def parse(self, data):
         lines = data.split(b"\r\n")
-
         request_line = lines[0]
+
+        if not request_line:
+            raise ValueError("Empty request line")
 
         words = request_line.split(b" ")
 
+        if len(words) < 3 or not words[0] or not words[1] or not words[2]:
+            raise ValueError("Malformed request line")
+
         self.method = words[0].decode()
 
-        if len(words) > 1:
-            # we put this in an if-block because sometimes
-            # browsers don't send uri for homepage
-            self.uri = words[1].decode()
+        # URI present
+        self.uri = words[1].decode()
 
-        if len(words) > 2:
-            self.http_version = words[2]
+        # HTTP version
+        self.http_version = words[2].decode(errors="ignore")
+        
