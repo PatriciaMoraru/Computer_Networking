@@ -3,6 +3,7 @@ import mimetypes
 from .tcp_server import TCPServer
 from .request import HTTPRequest
 from .pathing import resolve_safe
+from .listing import directory_to_links
 
 
 class HTTPServer(TCPServer):
@@ -80,11 +81,20 @@ class HTTPServer(TCPServer):
             return self.HTTP_404_handler()
         # 2) If the path is a directory, temporarily serve /index.html from it
         if candidate.is_dir():
-            index_path = candidate / "index.html"
-            if index_path.exists() and index_path.is_file():
-                candidate = index_path
-            else:
-                return self.HTTP_404_handler()
+            #build and send and HTML directory listing
+            response_body = directory_to_links(candidate, request.uri if request.uri else "/")
+            extra_headers = {
+                "Content-Type": "text/html; charset=utf-8",
+                "Content-Length": str(len(response_body)),
+                "Connection": "close",
+                "Server": "Crude Server"
+            }
+
+            response_line = self.response_line(status_code=200)
+            response_headers = self.response_headers(extra_headers)
+            blank_line = b"\r\n"
+            return b"".join([response_line, response_headers, blank_line, response_body])
+
         # 3) Serve the file if it exists and is a regular file
         if candidate.exists() and candidate.is_file():
             content_type = mimetypes.guess_type(str(candidate))[0] or "application/octet-stream"
@@ -113,11 +123,7 @@ class HTTPServer(TCPServer):
         return line.encode() # calling encode to convert str to bytes"
     
     def response_headers(self, extra_headers=None):
-        """Returns headers
-        The 'extra_headers' can be a dict for sending
-        extra headers for the current response
-        """
-        headers_copy = self.headers.copy() # make a local copy of headers
+        headers_copy = self.headers.copy()
 
         if extra_headers:
             headers_copy.update(extra_headers)
