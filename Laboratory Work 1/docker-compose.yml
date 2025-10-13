@@ -1,0 +1,21 @@
+services:
+  server:
+    build: .
+    container_name: http-server
+    command: ["python", "-m", "server", "--host", "0.0.0.0", "--port", "8000", "--root", "/app/content"]
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+
+  client:
+    build: .
+    container_name: http-client
+    depends_on:
+      - server
+    command: ["python", "client/client.py", "server", "8000", "/", "downloads"]
+    volumes:
+      - ./downloads:/app/downloads
+    environment:
+      - PYTHONUNBUFFERED=1
