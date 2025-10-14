@@ -109,6 +109,20 @@ The container runs this command (see `Dockerfile`):
 python -m server --host 0.0.0.0 --port 8000 --root /app/content
 ```
 
+### Contents of the served directory
+
+The served root maps to `./content` on the host (mounted to `/app/content`). Example:
+
+```
+/
+  ├─ Contemporary Literary Fiction/
+  ├─ Engineering and Autobiographical Non-Fiction/
+  ├─ Fantasy and Romance Series/
+  ├─ Gothic Classics/
+  ├─ index.html
+  └─ hello.html
+```
+
 ## Let's Jump Right In
 
 ### 1) Start the server
@@ -128,6 +142,7 @@ docker compose logs -f server
 
 - http://localhost:8000/
 - http://localhost:8000/index.html
+- http://localhost:8000/nope.html (404 example)
 - http://localhost:8000/Gothic%20Classics/ghost.png
 - http://localhost:8000/Engineering%20and%20Autobiographical%20Non-Fiction/Formula%201%20Engines.pdf
 
@@ -185,7 +200,7 @@ docker compose down -v
 
 1. Find your friend’s IP on the same LAN (e.g., `ipconfig` / `ifconfig` / `ip addr`).
 2. Visit: `http://FRIEND_IP:PORT/` in a browser.
-3. Or download with your client, e.g.:
+3. Or download with the client, e.g.:
 
 ```bash
 python client/client.py FRIEND_IP PORT "URL_PATH" ./downloads
@@ -422,13 +437,16 @@ Wireless LAN adapter Wi-Fi:
    Default Gateway . . . . . . . . . : 172.20.10.1
 ```
 
-- From the other laptop, opening `http://172.20.10.4:8000/` worked.
-
 Here FRIEND_IP is rather my computer's IP over the mobile hotspot. I downloaded the code on my second laptop with user "Aliona". There I accessed the server that runs on my computer using IPV4:8000. From the computer "Aliona" I ran the client.py.
 
+- From the other laptop, opening `http://172.20.10.4:8000/` worked.
 - Screenshots: other laptops’s listing, my client output, saved file in `downloads/`
   ![friend-ip](screenshots/directory_listing_friend.png)
   ![friend-home](screenshots/index_friend.png)
   ![friend-pdf](screenshots/pdf_friend.png)
   ![friend-terminal1](screenshots/terminal1_friend.png)
   ![friend-terminal2](screenshots/terminal2_friend.png)
+
+## Conclusion
+
+This lab implements a small but complete HTTP stack: a TCP-based server that safely serves files and directory listings (HTML/PNG/PDF) and a simple client that follows the required argument format and behavior. Docker ensures consistent runs, and the solution was tested locally and across devices via hotspot using the host’s IPv4.
