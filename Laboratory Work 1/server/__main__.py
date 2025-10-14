@@ -6,7 +6,7 @@ from pathlib import Path
 def parse_args():
     p = argparse.ArgumentParser(description="Simple HTTP file server (lab)")
     p.add_argument("--host", default="127.0.0.1", help="Host to bind to")
-    p.add_argument("--port", default=8888, type=int, help="Port to bind to")
+    p.add_argument("--port", default=8000, type=int, help="Port to bind to")
     p.add_argument("--root", default="./content", help="Root directory to serve")
     return p.parse_args()
 
