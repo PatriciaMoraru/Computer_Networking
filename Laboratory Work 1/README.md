@@ -159,7 +159,7 @@ python client/client.py ipv4_address 8000 "/Gothic Classics/ghost.png" ./downloa
 python client/client.py ipv4_address 8000 "/Engineering and Autobiographical Non-Fiction/Formula 1 Engines.pdf" ./downloads
 ```
 
-## Useful Commands
+### Useful Commands
 
 ```bash
 # Stop services
@@ -184,11 +184,11 @@ docker compose down -v
 ### (Optional) Browsing a friend’s server
 
 1. Find your friend’s IP on the same LAN (e.g., `ipconfig` / `ifconfig` / `ip addr`).
-2. Visit: `http://FRIEND_IP:8000/` in a browser.
+2. Visit: `http://FRIEND_IP:PORT/` in a browser.
 3. Or download with your client, e.g.:
 
 ```bash
-python client/client.py FRIEND_IP 8000 "/Gothic Classics/ghost.png" ./downloads
+python client/client.py FRIEND_IP PORT "URL_PATH" ./downloads
 ```
 
 ## Screenshots checklist
@@ -196,53 +196,53 @@ python client/client.py FRIEND_IP 8000 "/Gothic Classics/ghost.png" ./downloads
 ### 1) Docker status
 
 - Command: `docker compose ps`
-- Screenshot: containers `server` and `client` up
-![docker-ps](screenshots/docker-ps.png)
+- Screenshot: container `server` up
+  ![docker-ps](screenshots/docker-ps.png)
 
 ### 2) Server and Client logs
 
 - Command: `docker compose logs -f server`
-- Screenshot: server startup line showing host/port/root
-![server-logs](screenshots/server_logs.png)
+- Screenshot: server startup line showing host/port
+  ![server-logs](screenshots/server_logs.png)
 - Client logs (optional):
-![client-logs](screenshots/client_logs.png)
+  ![client-logs](screenshots/client_logs.png)
 
 ### 3) Browser — 404
 
 - URL: `http://localhost:8000/nope.html`
 - Screenshot: 404 page
-![404-page](screenshots/404.png)
+  ![404-page](screenshots/404.png)
 
 ### 4) Browser — HTML with embedded image
 
 - URL: `http://localhost:8000/index.html`
 - Screenshot: styled index page with the PNG rendered
-![index-html](screenshots/index_html.png)
+  ![index-html](screenshots/index_html.png)
 
 ### 5) Browser — PNG file directly
 
 - URL: `http://localhost:8000/Gothic%20Classics/ghost.png`
 - Screenshot: image viewer page in the browser
-![png-direct](screenshots/png_direct.png)
+  ![png-direct](screenshots/png_direct.png)
 
 ### 6) Browser — PDF file directly
 
 - URL: `http://localhost:8000/Engineering%20and%20Autobiographical%20Non-Fiction/Formula%201%20Engines.pdf`
 - Screenshot: PDF viewer in the browser
-![pdf-direct](screenshots/pdf_direct.png)
+  ![pdf-direct](screenshots/pdf_direct.png)
 
 ### 7) Directory listing — root
 
 - URL: `http://localhost:8000/`
 - Screenshot: generated directory listing page for `/`
-![listing-root](screenshots/listing_root.png)
+  ![listing-root](screenshots/listing_root.png)
 
 ### 8) Directory listing — subdirectory
 
 - URL: `http://localhost:8000/Gothic%20Classics/`
 - Screenshot: listing page with breadcrumbs and files
-![listing-subdir1](screenshots/listing_subdir1.png)
-![listing-subdir2](screenshots/listing_subdir2.png)
+  ![listing-subdir1](screenshots/listing_subdir1.png)
+  ![listing-subdir2](screenshots/listing_subdir2.png)
 
 ### 9) Client — HTML (prints body)
 
@@ -251,7 +251,7 @@ python client/client.py FRIEND_IP 8000 "/Gothic Classics/ghost.png" ./downloads
   docker compose run --rm client python /app/client/client.py server 8000 /index.html /app/downloads
   ```
 - Screenshot: terminal output showing HTTP status and HTML body
-![client-html](screenshots/client_html.png)
+  ![client-html](screenshots/client_html.png)
 - Full terminal output:
 
 ```bash
@@ -380,7 +380,7 @@ HTTP 200 OK
   docker compose run --rm client python /app/client/client.py server 8000 "/Gothic Classics/ghost.png" /app/downloads
   ```
 - Screenshot: terminal output and a file explorer showing `downloads/ghost.png`
-![client-png](screenshots/client_png.png)
+  ![client-png](screenshots/client_png.png)
 - Temrinal Output:
 
 ```bash
@@ -398,25 +398,18 @@ Saved: /app/downloads/ghost.png
   docker compose run --rm client python /app/client/client.py server 8000 "/Engineering and Autobiographical Non-Fiction/Formula 1 Engines.pdf" /app/downloads
   ```
 - Screenshot: terminal output showing the saved PDF
-![client-pdf](screenshots/client_pdf.png)
+  ![client-pdf](screenshots/client_pdf.png)
 
 ### 12) Friend’s server (well in my case my other laptop)
 
-Here FRIEND_IP is rather my computer's IP over the mobile hotspot. I downloaded the code on my second laptop with user "Aliona". There I accessed the server that runs on my computer using IPV4:8000. From the computer "Aliona" I ran the client.py.
+Steps:
 
 - Network: show `ipconfig`/`ifconfig`
-- Browser URL: `http://FRIEND_IP:8000/`
+- Browser URL: `http://FRIEND_IP:PORT/`
 - Client command:
   ```bash
-  python client/client.py FRIEND_IP 8000 "/Gothic Classics/ghost.png" ./downloads
+  python client/client.py FRIEND_IP PORT "URL_PATH" ./downloads
   ```
-- Screenshots: friend’s listing, my client output, saved file in `downloads/`
-- Screenshots:
-![friend-ip](screenshots/directory_listing_friend.png)
-![friend-home](screenshots/index_friend.png)
-![friend-pdf](screenshots/pdf_friend.png)
-![friend-terminal1](screenshots/terminal1_friend.png)
-![friend-terminal2](screenshots/terminal2_friend.png)
 
 #### Example (tested over mobile hotspot)
 
@@ -430,7 +423,12 @@ Wireless LAN adapter Wi-Fi:
 ```
 
 - From the other laptop, opening `http://172.20.10.4:8000/` worked.
-- Screenshots (placeholders):
-  - `![friend-home](screenshots/friend-home.png)` — main page
-  - `![friend-index](screenshots/friend-index.png)` — index.html
-  - `![friend-pdf](screenshots/friend-pdf.png)` — PDF in browser
+
+Here FRIEND_IP is rather my computer's IP over the mobile hotspot. I downloaded the code on my second laptop with user "Aliona". There I accessed the server that runs on my computer using IPV4:8000. From the computer "Aliona" I ran the client.py.
+
+- Screenshots: other laptops’s listing, my client output, saved file in `downloads/`
+  ![friend-ip](screenshots/directory_listing_friend.png)
+  ![friend-home](screenshots/index_friend.png)
+  ![friend-pdf](screenshots/pdf_friend.png)
+  ![friend-terminal1](screenshots/terminal1_friend.png)
+  ![friend-terminal2](screenshots/terminal2_friend.png)
