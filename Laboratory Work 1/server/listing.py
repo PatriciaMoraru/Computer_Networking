@@ -1,6 +1,7 @@
 from pathlib import Path
 from html import escape
 from datetime import datetime
+from urllib.parse import quote, unquote
 
 
 def directory_to_links(dir_path, request_path):
@@ -8,34 +9,42 @@ def directory_to_links(dir_path, request_path):
     A styled HTML directory listing for dir_path.
     request_path is the URL path (e.g., "/books/") used for link prefixes.
     """
-    title = f"Directory listing for {escape(request_path)}"
+    title = f"Directory listing for {escape(unquote(request_path))}"
 
     crumbs = [('<a href="/">/</a>', "/")]
     if request_path and request_path != "/":
-        parts = [p for p in request_path.strip("/").split("/") if p]
-        acc = ""
+        decoded = unquote(request_path)
+        parts = [p for p in decoded.strip("/").split("/") if p]
+        acc_decoded = ""
         for part in parts:
-            acc += "/" + part
-            crumbs.append((f'<a href="{escape(acc)}/">{escape(part)}</a>', acc + "/"))
+            acc_decoded += "/" + part
+            href = quote(acc_decoded, safe="/") + "/"
+            crumbs.append((f'<a href="{escape(href)}">{escape(part)}</a>', href))
+        if parts:
+            crumbs[-1] = (escape(parts[-1]), crumbs[-1][1])
     breadcrumb_html = " / ".join(label for label, _ in crumbs)
 
     rows = []
-    # Parent directory link (if not root)
+    
     if request_path != "/":
-        base = request_path if request_path.endswith("/") else request_path + "/"
-        parent = base.rstrip("/").rsplit("/", 1)[0]
-        if parent == "":
-            parent = "/"
+        base_decoded = unquote(request_path if request_path else "/")
+        base_decoded = base_decoded if base_decoded.endswith("/") else base_decoded + "/"
+        parent_decoded = base_decoded.rstrip("/").rsplit("/", 1)[0]
+        if parent_decoded == "":
+            parent_decoded = "/"
+        parent_href = quote(parent_decoded if parent_decoded.endswith("/") else parent_decoded + "/", safe="/")
         rows.append({
             "name": "..",
-            "href": parent if parent.endswith("/") else parent + "/",
+            "href": parent_href,
             "modified": "",
             "is_dir": True,
         })
 
     for entry in sorted(dir_path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
         name = entry.name + ("/" if entry.is_dir() else "")
-        href = (request_path if request_path.endswith("/") else request_path + "/") + name
+        base_decoded = unquote(request_path if request_path else "/")
+        base_decoded = base_decoded if base_decoded.endswith("/") else base_decoded + "/"
+        href = quote(base_decoded + name, safe="/")
         try:
             stat = entry.stat()
             modified = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M")
@@ -48,7 +57,6 @@ def directory_to_links(dir_path, request_path):
             "is_dir": entry.is_dir(),
         })
 
-    # HTML with a light pixel-art inspired style
     lines = [
         "<!doctype html>",
         "<html><head>",
