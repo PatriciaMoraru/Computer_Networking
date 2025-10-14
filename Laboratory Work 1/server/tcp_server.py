@@ -24,7 +24,6 @@ class TCPServer:
             conn, addr = s.accept()
             print("Connected by", addr)
 
-            # read HTTP request headers fully (cap to avoid abuse)
             data = b""
             max_bytes = 65536
             while b"\r\n\r\n" not in data and len(data) < max_bytes:

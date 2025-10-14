@@ -5,6 +5,31 @@ from urllib.parse import urlparse, unquote, quote
 
 CRLF = b"\r\n"
 
+def recv_until(sock, separator=b"\r\n\r\n", max_bytes=65536):
+    buf = b""
+    while separator not in buf and len(buf) < max_bytes:
+        chunk = sock.recv(4096)
+        if not chunk:
+            break
+        buf += chunk
+    sep_index = buf.find(separator)
+    if sep_index == -1:
+        return buf, b""
+    head = buf[:sep_index]
+    leftover = buf[sep_index + len(separator):]
+    return head, leftover
+
+def recv_exact(sock, num_bytes):
+    buf = b""
+    remaining = num_bytes
+    while remaining > 0:
+        chunk = sock.recv(min(65536, remaining))
+        if not chunk:
+            break
+        buf += chunk
+        remaining -= len(chunk)
+    return buf
+
 def recv_all(sock):
     chunks = []
     while True:
@@ -70,9 +95,36 @@ def main():
 
     sock = socket.create_connection((args.server_host, args.server_port), timeout=10)
     sock.sendall(req)
-    raw = recv_all(sock)
+
+    head_bytes, leftover = recv_until(sock, b"\r\n\r\n")
+    head_text = head_bytes.decode("iso-8859-1")
+    lines = head_text.split("\r\n") if head_text else []
+    status_line = lines[0] if lines else "HTTP/1.1 000 Unknown"
+    headers = {}
+    for line in lines[1:]:
+        if not line or ":" not in line:
+            continue
+        k, v = line.split(":", 1)
+        headers[k.strip().lower()] = v.strip()
+
+    body = leftover
+    content_length = None
+    if "content-length" in headers:
+        try:
+            content_length = int(headers["content-length"]) 
+        except Exception:
+            content_length = None
+
+    if content_length is not None:
+        need = max(0, content_length - len(body))
+        if need > 0:
+            body += recv_exact(sock, need)
+    else:
+        body += recv_all(sock)
+
     sock.close()
 
+    raw = head_bytes + b"\r\n\r\n" + body
     status, reason, headers, body = parse_response(raw)
     ctype = headers.get("content-type", "").lower()
 
