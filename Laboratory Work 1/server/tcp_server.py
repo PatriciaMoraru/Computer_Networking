@@ -1,7 +1,7 @@
 import socket
 
 class TCPServer:
-    def __init__(self, host='127.0.0.1', port=8888):
+    def __init__(self, host='127.0.0.1', port=8000):
         self.host = host
         self.port = port
 
@@ -24,9 +24,14 @@ class TCPServer:
             conn, addr = s.accept()
             print("Connected by", addr)
 
-            # read the data sent by the client
-            # we'll read only the first 1024 bytes
-            data = conn.recv(4096)
+            # read HTTP request headers fully (cap to avoid abuse)
+            data = b""
+            max_bytes = 65536
+            while b"\r\n\r\n" not in data and len(data) < max_bytes:
+                chunk = conn.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
 
             response = self.handle_request(data)
 
