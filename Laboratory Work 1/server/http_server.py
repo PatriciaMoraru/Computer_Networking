@@ -19,6 +19,13 @@ class HTTPServer(TCPServer):
         501: 'Not Implemented',
     }
 
+    mime_overrides = {
+        '.html': 'text/html; charset=utf-8',
+        '.htm':  'text/html; charset=utf-8',
+        '.png':  'image/png',
+        '.pdf':  'application/pdf',
+    }
+
     def handle_request(self, data):
         """Handles the incoming request.
         Compiles and returns the response
@@ -72,16 +79,13 @@ class HTTPServer(TCPServer):
         blank_line = b"\r\n"
 
         return b"".join([response_line, response_headers, blank_line, response_body])
-    
+
+
     def handle_GET(self, request):
-        # 1) Resolve the requested URI safely under the configured ROOT
         candidate = resolve_safe(request.uri)
         if candidate is None:
-            # outside root or ROOT not set
             return self.HTTP_404_handler()
-        # 2) If the path is a directory, temporarily serve /index.html from it
         if candidate.is_dir():
-            #build and send and HTML directory listing
             response_body = directory_to_links(candidate, request.uri if request.uri else "/")
             extra_headers = {
                 "Content-Type": "text/html; charset=utf-8",
@@ -95,9 +99,16 @@ class HTTPServer(TCPServer):
             blank_line = b"\r\n"
             return b"".join([response_line, response_headers, blank_line, response_body])
 
-        # 3) Serve the file if it exists and is a regular file
         if candidate.exists() and candidate.is_file():
-            content_type = mimetypes.guess_type(str(candidate))[0] or "application/octet-stream"
+            suffix = candidate.suffix.lower()
+            allowed_suffixes = {'.html', '.htm', '.png', '.pdf'}
+            if suffix not in allowed_suffixes:
+                return self.HTTP_404_handler()
+            content_type = (
+                self.mime_overrides.get(suffix)
+                or mimetypes.guess_type(str(candidate))[0]
+                or "application/octet-stream"
+            )
             with open(candidate, "rb") as f:
                 body = f.read()
 
@@ -112,7 +123,6 @@ class HTTPServer(TCPServer):
             blank_line = b"\r\n"
             return b"".join([response_line, response_headers, blank_line, body])
 
-        # 4) Fallback: not found
         return self.HTTP_404_handler()
 
     def response_line(self, status_code):
