@@ -178,20 +178,25 @@ Response time (s): min=1.033  avg=1.040  max=1.045
 Report (copy-paste): { ... }
 ```
 
-### Screenshot placeholders (Lab 2)
-- Server up: `docker compose ps` — `screenshots/docker-ps-lab2.png`
-- Server logs line showing workers/delay — `screenshots/server_logs_lab2.png`
-- Bench (workers=10, delay=1.0) — `screenshots/bench_concurrent.png`
-- Bench (workers=1, delay=1.0) — `screenshots/bench_single.png`
-- Optional headers from host: `curl -i http://localhost:8000/` — `screenshots/curl_headers.png`
+### Multithreading Performance Results
 
-### Troubleshooting
-- If bench shows the old one-line output, rebuild or run with `--build`:
-  `docker compose run --rm --build bench python client/bench.py ...`
-- You can bind-mount the client folder to avoid rebuilds:
-  under `bench`, add `volumes: - ./client:/app/client:ro`.
-- Extra args to `docker compose run bench ...` replace the configured command; if you want to pass flags, call `python client/bench.py` explicitly as shown above.
+**Single-threaded (workers=1, delay=1.0s):**
 
+![Single Thread](screenshots/single_thread.png)
+
+10 concurrent requests handled sequentially: ~10 seconds total
+
+---
+
+**Multi-threaded (workers=10, delay=1.0s):**
+
+![Multi Thread](screenshots/multithread.png)
+
+10 concurrent requests handled in parallel: ~1-2 seconds total
+
+---
+
+The multi-threaded server demonstrates significant performance improvement when handling concurrent requests with simulated work delays.
 
 ## Race Condition Demonstration
 
