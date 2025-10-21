@@ -5,19 +5,41 @@ This project contains a minimal HTTP file server and a simple client, both writt
 ## Architecture
 
 ```
-┌───────────────┐         ┌───────────────┐
-│    client     │────────>│    server     │
-│   (Python)    │  HTTP   │   (Python)    │
-│               │<────────│               │
-└───────────────┘         └───────────────┘
-        │                           │
-        │                           │
-        ▼                           ▼
-  downloads/                   content/
-  (host)                       (host, read-only)
+┌─────────────────────────────────────────────────────────────────────┐
+│                    HTTP Server (Concurrent)                         │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │  ThreadPoolExecutor (max_workers=10)                           │ │
+│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐         ┌─────────┐     │ │
+│  │  │ Worker  │ │ Worker  │ │ Worker  │   ...   │ Worker  │     │ │
+│  │  │ Thread  │ │ Thread  │ │ Thread  │         │ Thread  │     │ │
+│  │  └─────────┘ └─────────┘ └─────────┘         └─────────┘     │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+│                                                                      │
+│  Shared State (Thread-Safe):                                        │
+│  • Hit Counter (naive/locked mode) - tracks requests per path       │
+│  • Rate Limiter (per-IP) - sliding window algorithm                 │
+│                                                                      │
+│  Features:                                                           │
+│  • Directory listing with hit counts                                │
+│  • File serving (.html, .pdf, .png)                                 │
+│  • Rate limiting (5 req/s per IP)                                   │
+│  • 429 Too Many Requests response                                   │
+└─────────────────────────────────────────────────────────────────────┘
+                              ▲
+                              │ HTTP
+                              │
+        ┌─────────────────────┼─────────────────────┐
+        │                     │                     │
+┌───────▼─────────┐  ┌────────▼────────┐  ┌────────▼────────┐
+│  client.py      │  │  bench.py       │  │rate_limit_test  │
+│  (single req)   │  │  (concurrent)   │  │(spammer test)   │
+└─────────────────┘  └─────────────────┘  └─────────────────┘
+        │                     │                     │
+        ▼                     ▼                     ▼
+  downloads/            benchmarks           rate limit demo
 ```
 
-Both containers run in the same Docker network and can reach each other by service names (`server`, `client`).
+All containers run in the same Docker network and communicate via service names.
 
 ## Lab Deliverables
 
@@ -26,7 +48,9 @@ Both containers run in the same Docker network and can reach each other by servi
 ```
 Laboratory Work 2/
   client/
-    client.py
+    client.py              # Simple HTTP client for file downloads
+    bench.py               # Concurrent benchmark tool (measures throughput)
+    rate_limit_test.py     # Rate limiting test (spammer vs normal user)
   content/
     Contemporary Literary Fiction/
       Normal People by Sally Rooney.pdf
@@ -44,20 +68,73 @@ Laboratory Work 2/
       ghost.png
     index.html
     hello.html
+    Mythological and Symbolic Descent/
+      Katabasis by RF Kuang.pdf
   downloads/
+  screenshots/
+    single_thread.png      # Single-threaded benchmark results
+    multithread.png        # Multi-threaded benchmark results
+    naive1-6.png          # Race condition demonstration (naive mode)
+    naive7.png            # Browser showing data loss (11/50 hits)
+    lock1-4.png           # Race condition fix (locked mode)
+    lock5.png             # Browser showing correct count (50/50 hits)
+    rate1-6.png           # Rate limiting test results
+    429browser.png        # 429 Too Many Requests response
   server/
-    __main__.py  http_server.py  tcp_server.py  request.py  pathing.py  listing.py
-  Dockerfile
-  docker-compose.yml
-  README.md
+    __init__.py           # Package initialization
+    __main__.py           # Entry point with argument parsing
+    http_server.py        # HTTP server with hit counter & rate limiter
+    tcp_server.py         # TCP server with thread pool
+    request.py            # HTTP request parser
+    response.py           # (empty - methods in http_server.py)
+    pathing.py            # Safe path resolution
+    listing.py            # Directory listing HTML generator
+  Dockerfile              # Container build configuration
+  docker-compose.yml      # Multi-container orchestration
+  README.md               # This file
 ```
 
-### Command that runs the server inside the container (with directory argument)
+**Server Modules:**
+- `tcp_server.py` - Bounded thread pool (configurable workers), semaphore-based backpressure
+- `http_server.py` - Hit counter (naive/locked modes), rate limiter (per-IP), request routing
+- `request.py` - Parses HTTP request line (method, URI, version)
+- `listing.py` - Generates styled directory listings with hit counts and breadcrumbs
+- `pathing.py` - Prevents path traversal attacks, validates file access
+
+**Client Tools:**
+- `client.py` - Basic HTTP client for testing individual requests
+- `bench.py` - Concurrent load testing with timing statistics
+- `rate_limit_test.py` - Demonstrates rate limiting effectiveness
+
+### Command that runs the server inside the container
 
 The container runs this command (see `Dockerfile`):
 
 ```bash
-python -m server --host 0.0.0.0 --port 8000 --root /app/content
+python -m server --host 0.0.0.0 --port 8000 --root /app/content \
+  --workers ${WORKERS} --delay ${DELAY} \
+  --counter-mode ${COUNTER_MODE} --counter-delay ${COUNTER_DELAY} \
+  --rate-limit ${RATE_LIMIT}
+```
+
+**Parameters:**
+- `--host` - Bind address (0.0.0.0 for Docker)
+- `--port` - Port number (default: 8000)
+- `--root` - Content directory to serve
+- `--workers` - Max concurrent worker threads (default: 10)
+- `--delay` - Simulated work delay per request in seconds (default: 0.0)
+- `--counter-mode` - Hit counter: `naive` (race condition) or `locked` (thread-safe)
+- `--counter-delay` - Extra delay during counter increment to force races (default: 0.0)
+- `--rate-limit` - Rate limit per IP in requests/second, 0 = disabled (default: 0.0)
+
+**Environment Variables:**
+Set these before running `docker compose up` to configure the server:
+```bat
+set WORKERS=10
+set DELAY=1.0
+set COUNTER_MODE=locked
+set COUNTER_DELAY=0.0
+set RATE_LIMIT=5
 ```
 
 ## Lab 2 — Multithreaded Server and Benchmark (Concurrency)
