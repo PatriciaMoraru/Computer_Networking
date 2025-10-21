@@ -13,7 +13,7 @@ def get(host, port, path="/", timeout=20):
     """
     if not path.startswith("/"):
         path = "/" + path
-    # URL-encode spaces and other reserved chars in the request path
+        
     path = quote(path, safe="/%._-~")
     req = (
         f"GET {path} HTTP/1.1\r\n"

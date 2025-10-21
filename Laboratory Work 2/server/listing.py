@@ -30,7 +30,6 @@ def directory_to_links(dir_path, request_path, get_hits=None):
     current_hits_html = ""
     if get_hits:
         req = request_path or "/"
-        # normalize like your hrefs do (dirs end with '/')
         req = req if req.endswith("/") else req + "/"
         current_hits_html = (
             f"<div style='font-size:12px;margin:6px 0 10px 2px'>"
@@ -52,7 +51,7 @@ def directory_to_links(dir_path, request_path, get_hits=None):
             "href": parent_href,
             "modified": "",
             "is_dir": True,
-            "hits": "",  # parent navigational row: keep hits blank for clarity
+            "hits": "",  
         })
 
     for entry in sorted(dir_path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
@@ -70,7 +69,6 @@ def directory_to_links(dir_path, request_path, get_hits=None):
             "href": href,
             "modified": modified,
             "is_dir": entry.is_dir(),
-            # Ask the server for hits if a callback is provided; otherwise 0.
             "hits": (get_hits(href) if get_hits else 0),
         })
 
@@ -109,7 +107,6 @@ def directory_to_links(dir_path, request_path, get_hits=None):
         f"<div class=\"crumbs\">{breadcrumb_html}</div>",
         current_hits_html,
         "<table>",
-        # Add a Hits column when a get_hits callback is provided.
         ("<thead><tr><th>Name</th><th>Last Modified</th><th>Hits</th></tr></thead>" if get_hits else "<thead><tr><th>Name</th><th>Last Modified</th></tr></thead>"),
         "<tbody>",
     ]

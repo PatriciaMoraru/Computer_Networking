@@ -8,8 +8,6 @@ class TCPServer:
         self.host = host
         self.port = port
         self.max_workers = max_workers
-        # Use a semaphore to bound in-flight connections to the pool size.
-        # This prevents unbounded thread growth and applies backpressure under load.
         self._semaphore = threading.Semaphore(self.max_workers)
 
     def start(self):
@@ -48,12 +46,11 @@ class TCPServer:
                     break
                 data += chunk
 
-            response = self.handle_request(data)
+            response = self.handle_request(data, addr)
 
             conn.sendall(response)
         except Exception:
             # Swallow unexpected errors per connection to avoid crashing the server.
-            # In a production server, prefer structured logging here.
             pass
         finally:
             try:
@@ -63,6 +60,5 @@ class TCPServer:
             # Release the semaphore slot so another connection can proceed.
             self._semaphore.release()
 
-    def handle_request(self, data):
-        # Default echo behavior; subclasses (e.g., HTTPServer) override this.
+    def handle_request(self, data, addr):
         return data

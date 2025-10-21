@@ -10,6 +10,7 @@ services:
       - DELAY=${DELAY:-0.0}
       - COUNTER_MODE=${COUNTER_MODE:-naive}
       - COUNTER_DELAY=${COUNTER_DELAY:-0.0}
+      - RATE_LIMIT=${RATE_LIMIT:-0.0}
     restart: unless-stopped
 
   bench:

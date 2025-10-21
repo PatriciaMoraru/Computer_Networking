@@ -14,8 +14,6 @@ class HTTPRequest:
         if not request_line:
             raise ValueError("Empty request line")
 
-        # Split the request line into exactly three parts: METHOD SP URI SP HTTP/VERSION
-        # Using maxsplit=2 preserves any spaces inside the URI (common in our content paths).
         words = request_line.split(b" ", 2)
 
         if len(words) < 3 or not words[0] or not words[1] or not words[2]:

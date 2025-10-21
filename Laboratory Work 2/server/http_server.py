@@ -1,7 +1,7 @@
 import os
 import mimetypes
 import time 
-import threading  # lock for fixing race conditions on counters
+import threading 
 from .tcp_server import TCPServer
 from .request import HTTPRequest
 from .pathing import resolve_safe
@@ -18,6 +18,7 @@ class HTTPServer(TCPServer):
         200: 'OK',
         400: 'Bad Request',
         404: 'Not Found',
+        429: 'Too Many Requests',
         501: 'Not Implemented',
     }
 
@@ -29,7 +30,7 @@ class HTTPServer(TCPServer):
     }
 
     def __init__(self, host='127.0.0.1', port=8000, max_workers=10, simulated_delay_seconds=0.0,
-                 counter_mode: str = "naive", counter_delay: float = 0.0):
+                 counter_mode: str = "naive", counter_delay: float = 0.0, rate_limit: float = 0.0):
         # Initialize parent with bounded thread pool configuration.
         super().__init__(host=host, port=port, max_workers=max_workers)
         # Optional artificial delay to simulate per-request work time (not the race demo).
@@ -42,13 +43,17 @@ class HTTPServer(TCPServer):
         self.counter_mode = counter_mode
         # Delay inserted between read and write in increment to force interlacing.
         self.counter_delay = counter_delay
-        # Track total requests for statistics
         self.total_requests = 0
         self._stats_lock = threading.Lock()
 
+        # Rate limiting: track request timestamps per IP
+        self.rate_limit = rate_limit  
+        self.rate_limit_window = {}  
+        self._rate_limit_lock = threading.Lock()
+        self.rate_limit_blocked = 0 
+
     # --- Counter utilities ---
     def _normalize_key_from_url(self, url_path: str) -> str:
-        # Normalize incoming URL paths and listing hrefs to a single canonical key.
         part = url_path.split('?', 1)[0].split('#', 1)[0]
         from urllib.parse import unquote
         part = unquote(part)
@@ -57,7 +62,6 @@ class HTTPServer(TCPServer):
         return part
 
     def increment_hit(self, url_path: str):
-        # Naive read-modify-write (RMW) versus locked version to demonstrate/fix races.
         key = self._normalize_key_from_url(url_path)
         with self._stats_lock:
             self.total_requests += 1
@@ -66,7 +70,7 @@ class HTTPServer(TCPServer):
             with self._hits_lock:
                 previous = self.hits.get(key, 0)
                 if self.counter_delay and self.counter_delay > 0:
-                    time.sleep(self.counter_delay)  # force interleaving during demo
+                    time.sleep(self.counter_delay)  
                 self.hits[key] = previous + 1
                 new_val = self.hits[key]
             print(f"[COUNTER:LOCKED] '{key}': {previous} → {new_val}")
@@ -79,9 +83,41 @@ class HTTPServer(TCPServer):
             print(f"[COUNTER:NAIVE]  '{key}': {previous} → {new_val} (⚠️ race possible)")
 
     def get_hits_for_href(self, href: str) -> int:
-        # Listing provides hrefs (possibly encoded); map to our normalized key.
         key = self._normalize_key_from_url(href)
         return self.hits.get(key, 0)
+    
+    # --- Rate limiting utilities ---
+    def check_rate_limit(self, client_ip: str) -> bool:
+        """
+        Thread-safe rate limiter using sliding window.
+        Returns True if request is allowed, False if rate limit exceeded.
+        """
+        if self.rate_limit <= 0:
+            return True  
+        
+        current_time = time.time()
+        window_size = 1.0 
+        
+        with self._rate_limit_lock:
+            # Get or create timestamp list for this IP
+            if client_ip not in self.rate_limit_window:
+                self.rate_limit_window[client_ip] = []
+            
+            timestamps = self.rate_limit_window[client_ip]
+            
+            # Remove timestamps outside the window
+            cutoff_time = current_time - window_size
+            timestamps[:] = [ts for ts in timestamps if ts > cutoff_time]
+            
+            # Check if under limit
+            if len(timestamps) < self.rate_limit:
+                timestamps.append(current_time)
+                print(f"[RATE-LIMIT] {client_ip}: {len(timestamps)}/{int(self.rate_limit)} ✓ allowed")
+                return True
+            else:
+                self.rate_limit_blocked += 1
+                print(f"[RATE-LIMIT] {client_ip}: {len(timestamps)}/{int(self.rate_limit)} ✗ BLOCKED (total blocked: {self.rate_limit_blocked})")
+                return False
     
     def print_stats(self):
         """Print hit counter statistics for analysis."""
@@ -109,10 +145,17 @@ class HTTPServer(TCPServer):
             print(f"  {count:4d} hits: {path}")
         print("=" * 80 + "\n")
 
-    def handle_request(self, data):
+    def handle_request(self, data, addr):
         """Handles the incoming request.
         Compiles and returns the response
         """
+        # Extract client IP from address tuple
+        client_ip = addr[0] if addr else "unknown"
+        
+        # Check rate limit first (before parsing request)
+        if not self.check_rate_limit(client_ip):
+            return self.HTTP_429_handler()
+        
         try:
             request = HTTPRequest(data)
         except ValueError:
@@ -151,6 +194,18 @@ class HTTPServer(TCPServer):
         blank_line = b"\r\n"
         return b"".join([response_line, response_headers, blank_line, response_body])
 
+    def HTTP_429_handler(self):
+        response_body = b"<h1>429 Too Many Requests</h1><p>Rate limit exceeded. Please slow down.</p>"
+        extra = {
+            "Content-Length": str(len(response_body)),
+            "Connection": "close",
+            "Retry-After": "1",
+        }
+        response_line = self.response_line(status_code=429)
+        response_headers = self.response_headers(extra)
+        blank_line = b"\r\n"
+        return b"".join([response_line, response_headers, blank_line, response_body])
+
     def HTTP_501_handler(self, request):
         response_body = b"<h1>501 Not Implemented</h1>"
         extra = {
@@ -165,7 +220,6 @@ class HTTPServer(TCPServer):
 
 
     def handle_GET(self, request):
-        # Optional artificial delay to simulate CPU/IO work; helps demonstrate concurrency.
         start = time.perf_counter()
         worker_name = threading.current_thread().name
 
@@ -189,10 +243,10 @@ class HTTPServer(TCPServer):
         candidate = resolve_safe(request.uri)
         if candidate is None:
             return self.HTTP_404_handler()
+
         # Increment hit counter for both directories and files (post path resolution).
         self.increment_hit(request.uri if request.uri else "/")
         if candidate.is_dir():
-            # Provide a hits lookup so the listing can show a "Hits" column.
             response_body = directory_to_links(
                 candidate,
                 request.uri if request.uri else "/",
