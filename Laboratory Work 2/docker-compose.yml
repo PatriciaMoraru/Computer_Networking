@@ -1,21 +1,37 @@
 services:
   server:
     build: .
-    container_name: http-server
-    command: ["python", "-m", "server", "--host", "0.0.0.0", "--port", "8000", "--root", "/app/content"]
+    container_name: http-server-concurrent
     ports:
       - "8000:8000"
     environment:
       - PYTHONUNBUFFERED=1
+      - WORKERS=${WORKERS:-10}
+      - DELAY=${DELAY:-0.0}
+      - COUNTER_MODE=${COUNTER_MODE:-naive}
+      - COUNTER_DELAY=${COUNTER_DELAY:-0.0}
     restart: unless-stopped
 
-  client:
+  bench:
     build: .
-    container_name: http-client
+    container_name: http-bench
     depends_on:
       - server
-    command: ["python", "client/client.py", "server", "8000", "/", "downloads"]
-    volumes:
-      - ./downloads:/app/downloads
+    command: ["python","client/bench.py"]
     environment:
       - PYTHONUNBUFFERED=1
+      - BENCH_HOST=server
+      - BENCH_PORT=8000
+      - BENCH_PATH=/index.html
+      - BENCH_CONCURRENCY=10
+
+  # client:
+  #   build: .
+  #   container_name: http-client-concurrent
+  #   depends_on:
+  #     - server
+  #   command: ["python", "client/client.py", "server", "8000", "/", "/app/downloads"]
+  #   volumes:
+  #     - ./downloads:/app/downloads
+  #   environment:
+  #     - PYTHONUNBUFFERED=1
