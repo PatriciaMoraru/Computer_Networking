@@ -23,7 +23,7 @@ class TCPServer:
         s.bind((self.host, self.port))
 
         # start listening for connections
-        s.listen(5)
+        s.listen(128)
 
         print("Listening at", s.getsockname())
 
