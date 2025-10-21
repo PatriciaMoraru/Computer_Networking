@@ -4,10 +4,13 @@ from datetime import datetime
 from urllib.parse import quote, unquote
 
 
-def directory_to_links(dir_path, request_path):
+def directory_to_links(dir_path, request_path, get_hits=None):
     """
     A styled HTML directory listing for dir_path.
     request_path is the URL path (e.g., "/books/") used for link prefixes.
+    get_hits is an optional callable that accepts an href (string) and returns
+    an integer number of requests recorded for that path. When provided, the
+    listing renders a "Hits" column.
     """
     title = f"Directory listing for {escape(unquote(request_path))}"
 
@@ -38,6 +41,7 @@ def directory_to_links(dir_path, request_path):
             "href": parent_href,
             "modified": "",
             "is_dir": True,
+            "hits": "",  # parent navigational row: keep hits blank for clarity
         })
 
     for entry in sorted(dir_path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
@@ -55,6 +59,8 @@ def directory_to_links(dir_path, request_path):
             "href": href,
             "modified": modified,
             "is_dir": entry.is_dir(),
+            # Ask the server for hits if a callback is provided; otherwise 0.
+            "hits": (get_hits(href) if get_hits else 0),
         })
 
     lines = [
@@ -91,7 +97,8 @@ def directory_to_links(dir_path, request_path):
         f"<h1>{title}</h1>",
         f"<div class=\"crumbs\">{breadcrumb_html}</div>",
         "<table>",
-        "<thead><tr><th>Name</th><th>Last Modified</th></tr></thead>",
+        # Add a Hits column when a get_hits callback is provided.
+        ("<thead><tr><th>Name</th><th>Last Modified</th><th>Hits</th></tr></thead>" if get_hits else "<thead><tr><th>Name</th><th>Last Modified</th></tr></thead>"),
         "<tbody>",
     ]
 
@@ -101,12 +108,21 @@ def directory_to_links(dir_path, request_path):
         if r["is_dir"]:
             name_html += " <span class=\"badge\">DIR</span>"
 
-        lines.append(
-            "<tr>"
-            f"<td class=\"name\">{name_html}</td>"
-            f"<td>{escape(r['modified'])}</td>"
-            "</tr>"
-        )
+        if get_hits:
+            lines.append(
+                "<tr>"
+                f"<td class=\"name\">{name_html}</td>"
+                f"<td>{escape(r['modified'])}</td>"
+                f"<td>{escape(str(r['hits']))}</td>"
+                "</tr>"
+            )
+        else:
+            lines.append(
+                "<tr>"
+                f"<td class=\"name\">{name_html}</td>"
+                f"<td>{escape(r['modified'])}</td>"
+                "</tr>"
+            )
 
     lines += ["</tbody></table>", "</div>", "</body></html>"]
     html = "\n".join(lines).encode("utf-8")
