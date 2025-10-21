@@ -130,6 +130,9 @@ class HTTPServer(TCPServer):
 
     def handle_GET(self, request):
         # Optional artificial delay to simulate CPU/IO work; helps demonstrate concurrency.
+        start = time.perf_counter()
+        worker_name = threading.current_thread().name
+
         if self.simulated_delay_seconds and self.simulated_delay_seconds > 0:
             time.sleep(self.simulated_delay_seconds)
 
@@ -149,7 +152,9 @@ class HTTPServer(TCPServer):
                 "Content-Type": "text/html; charset=utf-8",
                 "Content-Length": str(len(response_body)),
                 "Connection": "close",
-                "Server": "Crude Server"
+                "Server": "Crude Server",
+                "X-Worker-Thread": worker_name,
+                "X-Handler-Elapsed": f"{time.perf_counter() - start:.3f}s",
             }
 
             response_line = self.response_line(status_code=200)
@@ -174,7 +179,9 @@ class HTTPServer(TCPServer):
                 "Content-Type": content_type,
                 "Content-Length": str(len(body)),
                 "Connection": "close",
-                "Server": "Crude Server"
+                "Server": "Crude Server",
+                "X-Worker-Thread": worker_name,
+                "X-Handler-Elapsed": f"{time.perf_counter() - start:.3f}s",
             }
             response_line = self.response_line(status_code=200)
             response_headers = self.response_headers(extra_headers)
