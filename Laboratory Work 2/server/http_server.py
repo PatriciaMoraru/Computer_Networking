@@ -42,6 +42,9 @@ class HTTPServer(TCPServer):
         self.counter_mode = counter_mode
         # Delay inserted between read and write in increment to force interlacing.
         self.counter_delay = counter_delay
+        # Track total requests for statistics
+        self.total_requests = 0
+        self._stats_lock = threading.Lock()
 
     # --- Counter utilities ---
     def _normalize_key_from_url(self, url_path: str) -> str:
@@ -56,22 +59,55 @@ class HTTPServer(TCPServer):
     def increment_hit(self, url_path: str):
         # Naive read-modify-write (RMW) versus locked version to demonstrate/fix races.
         key = self._normalize_key_from_url(url_path)
+        with self._stats_lock:
+            self.total_requests += 1
+        
         if self.counter_mode == "locked":
             with self._hits_lock:
                 previous = self.hits.get(key, 0)
                 if self.counter_delay and self.counter_delay > 0:
                     time.sleep(self.counter_delay)  # force interleaving during demo
                 self.hits[key] = previous + 1
+                new_val = self.hits[key]
+            print(f"[COUNTER:LOCKED] '{key}': {previous} → {new_val}")
         else:
             previous = self.hits.get(key, 0)
             if self.counter_delay and self.counter_delay > 0:
                 time.sleep(self.counter_delay)  # naive path: race window
             self.hits[key] = previous + 1
+            new_val = self.hits[key]
+            print(f"[COUNTER:NAIVE]  '{key}': {previous} → {new_val} (⚠️ race possible)")
 
     def get_hits_for_href(self, href: str) -> int:
         # Listing provides hrefs (possibly encoded); map to our normalized key.
         key = self._normalize_key_from_url(href)
         return self.hits.get(key, 0)
+    
+    def print_stats(self):
+        """Print hit counter statistics for analysis."""
+        print("\n" + "=" * 80)
+        print("HIT COUNTER STATISTICS")
+        print("=" * 80)
+        print(f"Mode              : {self.counter_mode.upper()}")
+        print(f"Total Requests    : {self.total_requests}")
+        print(f"Unique Paths      : {len(self.hits)}")
+        total_hits = sum(self.hits.values())
+        print(f"Total Recorded Hits: {total_hits}")
+        if self.total_requests > 0:
+            loss_pct = ((self.total_requests - total_hits) / self.total_requests) * 100
+            print(f"Lost Updates      : {self.total_requests - total_hits} ({loss_pct:.1f}%)")
+            if loss_pct > 5:
+                print(f"                    ⚠️  SIGNIFICANT DATA LOSS - Race condition detected!")
+            elif loss_pct > 0:
+                print(f"                    ⚠️  Minor data loss detected")
+            else:
+                print(f"                    ✓ No data loss - Synchronization working!")
+        print("-" * 80)
+        print("Top 5 paths by hits:")
+        sorted_hits = sorted(self.hits.items(), key=lambda x: x[1], reverse=True)[:5]
+        for path, count in sorted_hits:
+            print(f"  {count:4d} hits: {path}")
+        print("=" * 80 + "\n")
 
     def handle_request(self, data):
         """Handles the incoming request.
@@ -133,6 +169,20 @@ class HTTPServer(TCPServer):
         start = time.perf_counter()
         worker_name = threading.current_thread().name
 
+        # Special endpoint to print statistics
+        if request.uri == "/_stats":
+            self.print_stats()
+            response_body = b"<h1>Statistics printed to server console</h1><p>Check the Docker logs.</p>"
+            extra = {
+                "Content-Length": str(len(response_body)),
+                "Content-Type": "text/html; charset=utf-8",
+                "Connection": "close",
+            }
+            response_line = self.response_line(status_code=200)
+            response_headers = self.response_headers(extra)
+            blank_line = b"\r\n"
+            return b"".join([response_line, response_headers, blank_line, response_body])
+
         if self.simulated_delay_seconds and self.simulated_delay_seconds > 0:
             time.sleep(self.simulated_delay_seconds)
 
@@ -155,6 +205,9 @@ class HTTPServer(TCPServer):
                 "Server": "Crude Server",
                 "X-Worker-Thread": worker_name,
                 "X-Handler-Elapsed": f"{time.perf_counter() - start:.3f}s",
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
             }
 
             response_line = self.response_line(status_code=200)

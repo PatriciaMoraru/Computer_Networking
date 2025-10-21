@@ -24,7 +24,7 @@ Both containers run in the same Docker network and can reach each other by servi
 ### Contents of the source directory
 
 ```
-Laboratory Work 1/
+Laboratory Work 2/
   client/
     client.py
   content/
@@ -52,15 +52,35 @@ Laboratory Work 1/
   README.md
 ```
 
-### Docker files
+### Command that runs the server inside the container (with directory argument)
 
-- Dockerfile: `Dockerfile`
+The container runs this command (see `Dockerfile`):
 
+```bash
+python -m server --host 0.0.0.0 --port 8000 --root /app/content
 ```
+
+## Lab 2 — Multithreaded Server and Benchmark (Concurrency)
+
+### What changed in Lab 2
+- The TCP server now uses a bounded thread pool to handle requests concurrently.
+- Runtime flags control concurrency and simulated work delay:
+  - `--workers N` — max in-flight connections handled concurrently.
+  - `--delay S` — optional per-request delay to simulate ~S seconds of work.
+- A benchmark script (`client/bench.py`) issues concurrent GETs and prints a detailed report.
+
+### Dockerfile (Lab 2)
+Environment variables drive the server configuration at runtime.
+
+```startLine:endLine:Laboratory Work 2/Dockerfile
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    WORKERS=10 \
+    DELAY=0.0 \
+    COUNTER_MODE=naive \
+    COUNTER_DELAY=0.0
 
 WORKDIR /app
 
@@ -70,383 +90,454 @@ COPY content/ /app/content/
 
 EXPOSE 8000
 
-CMD ["python", "-m", "server", "--host", "0.0.0.0", "--port", "8000", "--root", "/app/content"]
-
+CMD ["sh", "-c", "python -m server --host 0.0.0.0 --port 8000 --root /app/content --workers ${WORKERS} --delay ${DELAY} --counter-mode ${COUNTER_MODE} --counter-delay ${COUNTER_DELAY}"]
 ```
 
-- Compose: `docker-compose.yml`
+### docker-compose (Lab 2)
+- Exposes `server` and a `bench` utility service. The optional `client` service is commented out.
 
-```
+```startLine:endLine:Laboratory Work 2/docker-compose.yml
 services:
   server:
     build: .
-    container_name: http-server
-    command: ["python", "-m", "server", "--host", "0.0.0.0", "--port", "8000", "--root", "/app/content"]
+    container_name: http-server-concurrent
     ports:
       - "8000:8000"
     environment:
       - PYTHONUNBUFFERED=1
+      - WORKERS=${WORKERS:-10}
+      - DELAY=${DELAY:-0.0}
+      - COUNTER_MODE=${COUNTER_MODE:-naive}
+      - COUNTER_DELAY=${COUNTER_DELAY:-0.0}
     restart: unless-stopped
 
-  client:
+  bench:
     build: .
-    container_name: http-client
+    container_name: http-bench
     depends_on:
       - server
-    command: ["python", "client/client.py", "server", "8000", "/", "downloads"]
-    volumes:
-      - ./downloads:/app/downloads
+    command: ["python","client/bench.py"]
     environment:
       - PYTHONUNBUFFERED=1
-
+      - BENCH_HOST=server
+      - BENCH_PORT=8000
+      - BENCH_PATH=/index.html
+      - BENCH_CONCURRENCY=10
 ```
 
-### Command that runs the server inside the container (with directory argument)
+Note: When running `docker compose run bench ...EXTRA_ARGS...`, the extra args replace the configured command. To pass flags reliably, invoke the script explicitly as shown below.
 
-The container runs this command (see `Dockerfile`):
-
-```bash
-python -m server --host 0.0.0.0 --port 8000 --root /app/content
-```
-
-### Contents of the served directory
-
-The served root maps to `./content` on the host (mounted to `/app/content`). Example:
-
-```
-/
-  ├─ Contemporary Literary Fiction/
-  ├─ Engineering and Autobiographical Non-Fiction/
-  ├─ Fantasy and Romance Series/
-  ├─ Gothic Classics/
-  ├─ index.html
-  └─ hello.html
-```
-
-## Let's Jump Right In
-
-### 1) Start the server
-
-```bash
-docker compose build
-docker compose up -d server
-```
-
-Check logs:
-
-```bash
-docker compose logs -f server
-```
-
-### 2) Access from your browser
-
-- http://localhost:8000/
-- http://localhost:8000/index.html
-- http://localhost:8000/nope.html (404 example)
-- http://localhost:8000/Gothic%20Classics/ghost.png
-- http://localhost:8000/Engineering%20and%20Autobiographical%20Non-Fiction/Formula%201%20Engines.pdf
-
-### 3) Use the client (optional)
-
-Run ad-hoc client commands (container exits after each run):
-
-```bash
-# HTML (prints body)
-docker compose run --rm client python /app/client/client.py server 8000 /index.html /app/downloads
-
-# PNG (saves file)
-docker compose run --rm client python /app/client/client.py server 8000 "/Gothic Classics/ghost.png" /app/downloads
-
-# PDF (saves file)
-docker compose run --rm client python /app/client/client.py server 8000 "/Engineering and Autobiographical Non-Fiction/Formula 1 Engines.pdf" /app/downloads
-```
-
-Saved files are available on the host in `./downloads/`.
-
-#### Run client locally (no Docker)
-
-- Windows (PowerShell):
-
+### Multithreading quick test
+PowerShell:
 ```powershell
-cd "Laboratory Work 1"
-python client/client.py ipv4_address 8000 /index.html ./downloads
-python client/client.py ipv4_address 8000 "/Gothic Classics/ghost.png" ./downloads
-python client/client.py ipv4_address 8000 "/Engineering and Autobiographical Non-Fiction/Formula 1 Engines.pdf" ./downloads
+cd "Laboratory Work 2"
+set WORKERS = "10" && set DELAY = "1.0"
+docker compose up -d --build server
+docker compose run --rm bench python client/bench.py --host server --port 8000 --path /index.html --concurrency 10 --timeout 20
+
+set WORKERS = "1" && set DELAY = "1.0"
+docker compose up -d --force-recreate server
+docker compose run --rm bench python client/bench.py --host server --port 8000 --path /index.html --concurrency 10 --timeout 20
 ```
 
-### Useful Commands
+Command Prompt (cmd.exe):
+```bat
+cd "Laboratory Work 2"
+set WORKERS=10
+set DELAY=1.0
+docker compose up -d --build server
+docker compose run --rm bench python client/bench.py --host server --port 8000 --path /index.html --concurrency 10 --timeout 20
 
-```bash
-# Stop services
-docker compose down
-
-# Rebuild after code changes
-docker compose up -d --build
-
-# Shells
-docker compose exec server bash
-docker compose exec client bash
-
-# Clean everything
-docker compose down -v
+set WORKERS=1
+set DELAY=1.0
+docker compose up -d --force-recreate server
+docker compose run --rm bench python client/bench.py --host server --port 8000 --path /index.html --concurrency 10 --timeout 20
 ```
 
-### Directory listing (root and a subdirectory)
+Expected outcome with `DELAY=1.0`:
+- `WORKERS=10`: total ≈ 1–2s for 10 requests (parallel).
+- `WORKERS=1`: total ≈ 10–12s for 10 requests (sequential).
 
-- Root listing: `http://localhost:8000/`
-- Subdirectory listing: `http://localhost:8000/Gothic%20Classics/`
+### Benchmark script output
+The script prints a distinct report format, e.g.:
 
-### (Optional) Browsing a friend’s server
+```text
+=== HTTP Concurrency Bench ===
+Host: server    Port: 8000
+URL: /index.html     Concurrency: 10
+Running requests...
+req#1: 1.041s, 2027 bytes
+...
 
-1. Find your friend’s IP on the same LAN (e.g., `ipconfig` / `ifconfig` / `ip addr`).
-2. Visit: `http://FRIEND_IP:PORT/` in a browser.
-3. Or download with the client, e.g.:
+=== Summary ===
+Total elapsed: 1.052s
+OK/Total: 10/10
+Failed: 0
+Response time (s): min=1.033  avg=1.040  max=1.045
 
-```bash
-python client/client.py FRIEND_IP PORT "URL_PATH" ./downloads
+Report (copy-paste): { ... }
 ```
 
-## Screenshots checklist
+### Screenshot placeholders (Lab 2)
+- Server up: `docker compose ps` — `screenshots/docker-ps-lab2.png`
+- Server logs line showing workers/delay — `screenshots/server_logs_lab2.png`
+- Bench (workers=10, delay=1.0) — `screenshots/bench_concurrent.png`
+- Bench (workers=1, delay=1.0) — `screenshots/bench_single.png`
+- Optional headers from host: `curl -i http://localhost:8000/` — `screenshots/curl_headers.png`
 
-### 1) Docker status
+### Troubleshooting
+- If bench shows the old one-line output, rebuild or run with `--build`:
+  `docker compose run --rm --build bench python client/bench.py ...`
+- You can bind-mount the client folder to avoid rebuilds:
+  under `bench`, add `volumes: - ./client:/app/client:ro`.
+- Extra args to `docker compose run bench ...` replace the configured command; if you want to pass flags, call `python client/bench.py` explicitly as shown above.
 
-- Command: `docker compose ps`
-- Screenshot: container `server` up
-  ![docker-ps](screenshots/docker-ps.png)
 
-### 2) Server and Client logs
+## Race Condition Demonstration
 
-- Command: `docker compose logs -f server`
-- Screenshot: server startup line showing host/port
-  ![server-logs](screenshots/server_logs.png)
-- Client logs (optional):
-  ![client-logs](screenshots/client_logs.png)
+This section demonstrates a classic race condition in concurrent programming and how to fix it using synchronization mechanisms.
 
-### 3) Browser — 404
+### Overview
 
-- URL: `http://localhost:8000/nope.html`
-- Screenshot: 404 page
-  ![404-page](screenshots/404.png)
+The server includes a **hit counter** that tracks how many times each path (file or directory) is requested. This counter is shared across all worker threads, creating a potential race condition when multiple threads try to increment the same counter simultaneously.
 
-### 4) Browser — HTML with embedded image
-
-- URL: `http://localhost:8000/index.html`
-- Screenshot: styled index page with the PNG rendered
-  ![index-html](screenshots/index_html.png)
-
-### 5) Browser — PNG file directly
-
-- URL: `http://localhost:8000/Gothic%20Classics/ghost.png`
-- Screenshot: image viewer page in the browser
-  ![png-direct](screenshots/png_direct.png)
-
-### 6) Browser — PDF file directly
-
-- URL: `http://localhost:8000/Engineering%20and%20Autobiographical%20Non-Fiction/Formula%201%20Engines.pdf`
-- Screenshot: PDF viewer in the browser
-  ![pdf-direct](screenshots/pdf_direct.png)
-
-### 7) Directory listing — root
-
-- URL: `http://localhost:8000/`
-- Screenshot: generated directory listing page for `/`
-  ![listing-root](screenshots/listing_root.png)
-
-### 8) Directory listing — subdirectory
-
-- URL: `http://localhost:8000/Gothic%20Classics/`
-- Screenshot: listing page with breadcrumbs and files
-  ![listing-subdir1](screenshots/listing_subdir1.png)
-  ![listing-subdir2](screenshots/listing_subdir2.png)
-
-### 9) Client — HTML (prints body)
-
-- Command:
-  ```bash
-  docker compose run --rm client python /app/client/client.py server 8000 /index.html /app/downloads
-  ```
-- Screenshot: terminal output showing HTTP status and HTML body
-  ![client-html](screenshots/client_html.png)
-- Full terminal output:
-
-```bash
-C:\Visual Studio Code Projects\Computer Networking\Laboratory Work 1>docker compose run --rm client python /app/client/client.py server 8000 /index.html /app/downloads
-[+] Creating 1/0
- ✔ Container http-server  Running                                                                                                                           0.0s
-HTTP 200 OK
-<html>
-    <head>
-        <title>Index page</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <link rel="preconnect" href="https://fonts.googleapis.com">
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
-        <style>
-        :root{--ink:#1a1333;--panel:#ffffffcc;}
-        html,body{height:100%;margin:0;}
-        body{font-family:'Press Start 2P',system-ui,Segoe UI,Roboto,Helvetica,Arial,'Noto Sans',sans-serif;
-        background: linear-gradient(180deg,#2e026d 0%, #8a2be2 35%, #ff7e5f 70%, #feb47b 100%);
-        color:var(--ink);display:flex;align-items:flex-start;justify-content:center;padding:24px;}
-        .wrap{width:min(1000px,95vw);background:var(--panel);border:4px solid #1a1333;
-        box-shadow:8px 8px 0 #1a1333;padding:24px;border-radius:6px;}
-        h1{font-size:18px;margin:0 0 16px 0;}
-        p{font-size:12px;line-height:1.7;}
-        a{color:#3b82f6;text-decoration:none;}
-        a:hover{color:#1d4ed8;text-decoration:underline;}
-        .img{margin:16px 0;}
-        .links{margin-top:16px;}
-        </style>
-    </head>
-    <body>
-        <div class="wrap">
-            <h1>Index page</h1>
-        a:hover{color:#1d4ed8;text-decoration:underline;}
-        .img{margin:16px 0;}
-        .links{margin-top:16px;}
-        </style>
-    </head>
-    <body>
-        <div class="wrap">
-        a:hover{color:#1d4ed8;text-decoration:underline;}
-        .img{margin:16px 0;}
-        .links{margin-top:16px;}
-        </style>
-    </head>
-        a:hover{color:#1d4ed8;text-decoration:underline;}
-        .img{margin:16px 0;}
-        .links{margin-top:16px;}
-        a:hover{color:#1d4ed8;text-decoration:underline;}
-        a:hover{color:#1d4ed8;text-decoration:underline;}
-        .img{margin:16px 0;}
-        .links{margin-top:16px;}
-        </style>
-    </head>
-    <body>
-        <div class="wrap">
-            <h1>Index page</h1>
-        a:hover{color:#1d4ed8;text-decoration:underline;}
-        .img{margin:16px 0;}
-        .links{margin-top:16px;}
-        </style>
-    </head>
-    <body>
-        <div class="wrap">
-            <h1>Index page</h1>
-            <p>This is the index page. Below is a PNG image served by the server:</p>
-            <div class="img">
-                <img src="Gothic%20Classics/ghost.png" alt="Ghost image" style="max-width: 400px; width:100%; height:auto;">
-        a:hover{color:#1d4ed8;text-decoration:underline;}
-        .img{margin:16px 0;}
-        .links{margin-top:16px;}
-        </style>
-    </head>
-    <body>
-        <div class="wrap">
-            <h1>Index page</h1>
-            <p>This is the index page. Below is a PNG image served by the server:</p>
-        </style>
-    </head>
-    <body>
-        <div class="wrap">
-            <h1>Index page</h1>
-    <body>
-        <div class="wrap">
-            <h1>Index page</h1>
-            <h1>Index page</h1>
-            <p>This is the index page. Below is a PNG image served by the server:</p>
-            <div class="img">
-                <img src="Gothic%20Classics/ghost.png" alt="Ghost image" style="max-width: 400px; width:100%; height:auto;">
-            <p>This is the index page. Below is a PNG image served by the server:</p>
-            <div class="img">
-            <p>This is the index page. Below is a PNG image served by the server:</p>
-            <div class="img">
-                <img src="Gothic%20Classics/ghost.png" alt="Ghost image" style="max-width: 400px; width:100%; height:auto;">
-            </div>
-            <div class="links">
-                <p><a href="/">Browse root directory</a></p>
-                <p><a href="Gothic%20Classics/">Browse the Gothic Classics directory</a></p>
-            </div>
-            <p>This is the index page. Below is a PNG image served by the server:</p>
-            <div class="img">
-                <img src="Gothic%20Classics/ghost.png" alt="Ghost image" style="max-width: 400px; width:100%; height:auto;">
-            </div>
-            <div class="links">
-            <p>This is the index page. Below is a PNG image served by the server:</p>
-            <div class="img">
-                <img src="Gothic%20Classics/ghost.png" alt="Ghost image" style="max-width: 400px; width:100%; height:auto;">
-            <p>This is the index page. Below is a PNG image served by the server:</p>
-            <p>This is the index page. Below is a PNG image served by the server:</p>
-            <div class="img">
-                <img src="Gothic%20Classics/ghost.png" alt="Ghost image" style="max-width: 400px; width:100%; height:auto;">
-            </div>
-            <div class="links">
-                <p><a href="/">Browse root directory</a></p>
-                <p><a href="Gothic%20Classics/">Browse the Gothic Classics directory</a></p>
-            </div>
-        </div>
-    </body>
-</html>
+**The Problem:** In naive mode, the counter uses a simple read-modify-write pattern without synchronization:
+```python
+# Thread-unsafe (naive mode)
+previous = self.hits.get(key, 0)  # READ
+self.hits[key] = previous + 1     # WRITE (race window!)
 ```
 
-### 10) Client — PNG (saves file)
+When multiple threads execute this code concurrently on the same key, they can read the same `previous` value, then all write `previous + 1`, causing **lost updates**.
 
-- Command:
-  ```bash
-  docker compose run --rm client python /app/client/client.py server 8000 "/Gothic Classics/ghost.png" /app/downloads
-  ```
-- Screenshot: terminal output and a file explorer showing `downloads/ghost.png`
-  ![client-png](screenshots/client_png.png)
-- Temrinal Output:
-
-```bash
-C:\Visual Studio Code Projects\Computer Networking\Laboratory Work 1>docker compose run --rm client python /app/client/client.py server 8000 "/Gothic Classics/ghost.png" /app/downloads
-[+] Creating 1/0
- ✔ Container http-server  Running                                                                                                                           0.0s
-HTTP 200 OK
-Saved: /app/downloads/ghost.png
+**The Solution:** Use a lock to ensure atomic read-modify-write operations:
+```python
+# Thread-safe (locked mode)
+with self._hits_lock:
+    previous = self.hits.get(key, 0)
+    self.hits[key] = previous + 1
 ```
 
-### 11) Client — PDF (saves file)
+---
 
-- Command:
-  ```bash
-  docker compose run --rm client python /app/client/client.py server 8000 "/Engineering and Autobiographical Non-Fiction/Formula 1 Engines.pdf" /app/downloads
-  ```
-- Screenshot: terminal output showing the saved PDF
-  ![client-pdf](screenshots/client_pdf.png)
+### Test 1: Naive Mode (Demonstrating the Race Condition)
 
-### 12) Friend’s server (well in my case my other laptop)
+**Configuration:**
+- `COUNTER_MODE=naive` — No synchronization
+- `COUNTER_DELAY=0.01` — Artificial delay to increase the probability of thread interleaving
+- 50 concurrent requests to the same path
 
-Steps:
-
-- Network: show `ipconfig`/`ifconfig`
-- Browser URL: `http://FRIEND_IP:PORT/`
-- Client command:
-  ```bash
-  python client/client.py FRIEND_IP PORT "URL_PATH" ./downloads
-  ```
-
-#### Example (tested over mobile hotspot)
-
-```
-Wireless LAN adapter Wi-Fi:
-
-   Connection-specific DNS Suffix  . :
-   IPv4 Address. . . . . . . . . . . : 172.20.10.4
-   Subnet Mask . . . . . . . . . . . : 255.255.255.240
-   Default Gateway . . . . . . . . . : 172.20.10.1
+**Commands:**
+```bat
+cd "Laboratory Work 2"
+set COUNTER_MODE=naive
+set COUNTER_DELAY=0.01
+set WORKERS=10
+set DELAY=0.0
+docker compose up -d --build server
 ```
 
-Here FRIEND_IP is rather my computer's IP over the mobile hotspot. I downloaded the code on my second laptop with user "Aliona". There I accessed the server that runs on my computer using IPV4:8000. From the computer "Aliona" I ran the client.py.
+Wait for the server to start, then run the benchmark:
+```bat
+docker compose run --rm bench python client/bench.py --host server --port 8000 --path /index.html --concurrency 50 --timeout 30
+```
 
-- From the other laptop, opening `http://172.20.10.4:8000/` worked.
-- Screenshots: other laptops’s listing, my client output, saved file in `downloads/`
-  ![friend-ip](screenshots/directory_listing_friend.png)
-  ![friend-home](screenshots/index_friend.png)
-  ![friend-pdf](screenshots/pdf_friend.png)
-  ![friend-terminal1](screenshots/terminal1_friend.png)
-  ![friend-terminal2](screenshots/terminal2_friend.png)
+To view statistics, visit `http://localhost:8000/_stats` in your browser, then check the logs:
+```bat
+docker compose logs server --tail 50
+```
 
-## Conclusion
+**Results:**
 
-This lab implements a small but complete HTTP stack: a TCP-based server that safely serves files and directory listings (HTML/PNG/PDF) and a simple client that follows the required argument format and behavior. Docker ensures consistent runs, and the solution was tested locally and across devices via hotspot using the host’s IPv4.
+Server logs showing concurrent updates with race condition:
+```
+http-server-concurrent  | 
+http-server-concurrent  | [COUNTER:NAIVE]  '/index.html': 6 → 7 (⚠️ race possible)[COUNTER:NAIVE]  '/index.html': 7 → 8 (⚠️ ️ race possible)
+http-server-concurrent  | Connected by
+http-server-concurrent  | [COUNTER:NAIVE]  '/index.html': 7 → 8 (⚠️ race possible)[COUNTER:NAIVE]  '/index.html': 6 → 7 (⚠️ ️ race possible)
+http-server-concurrent  |  ('172.18.0.3', 49078)
+http-server-concurrent  | [COUNTER:NAIVE]  '/index.html': 7 → 8 (⚠️ race possible)
+http-server-concurrent  | Connected by
+http-server-concurrent  | [COUNTER:NAIVE]  '/index.html': 7 → 8 (⚠️ race possible)
+http-server-concurrent  |  ('172.18.0.3', 49092)
+http-server-concurrent  | Connected by[COUNTER:NAIVE]  '/index.html': 7 → 8 (⚠️ race possible)
+http-server-concurrent  |  ('172.18.0.3', 49108)
+http-server-concurrent  | Connected by[COUNTER:NAIVE]  '/index.html': 8 → 9 (⚠️ race possible) ('172.18.0.3', 49118)       
+http-server-concurrent  | Connected by
+http-server-concurrent  |  ('172.18.0.3', 49132)
+http-server-concurrent  | Connected by ('172.18.0.3', 49142)
+http-server-concurrent  | Connected by ('172.18.0.3', 49146)
+http-server-concurrent  | Connected by ('172.18.0.3', 49126)
+http-server-concurrent  | [COUNTER:NAIVE]  '/index.html': 8 → 9 (⚠️ race possible)[COUNTER:NAIVE]  '/index.html': 8 → 9 (⚠️ ️ race possible)[COUNTER:NAIVE]  '/index.html': 9 → 10 (⚠️ race possible)
+http-server-concurrent  | Connected by ('172.18.0.3', 49154)
+http-server-concurrent  |
+http-server-concurrent  |
+http-server-concurrent  | [COUNTER:NAIVE]  '/index.html': 9 → 10 (⚠️ race possible)
+http-server-concurrent  | [COUNTER:NAIVE]  '/index.html': 9 → 10 (⚠️ race possible)
+http-server-concurrent  | [COUNTER:NAIVE]  '/index.html': 9 → 10 (⚠️ race possible)
+http-server-concurrent  | Connected by ('172.18.0.3', 49164)
+http-server-concurrent  | Connected by ('172.18.0.3', 49168)
+http-server-concurrent  | Connected by ('172.18.0.3', 49170)
+http-server-concurrent  | [COUNTER:NAIVE]  '/index.html': 9 → 10 (⚠️ race possible)
+http-server-concurrent  | [COUNTER:NAIVE]  '/index.html': 10 → 11 (⚠️ race possible)
+http-server-concurrent  | [COUNTER:NAIVE]  '/index.html': 10 → 11 (⚠️ race possible)
+http-server-concurrent  | [COUNTER:NAIVE]  '/index.html': 10 → 11 (⚠️ race possible)
+http-server-concurrent  | [COUNTER:NAIVE]  '/index.html': 10 → 11 (⚠️ race possible)
+http-server-concurrent  | Connected by ('172.18.0.1', 46938)
+http-server-concurrent  |
+http-server-concurrent  | ================================================================================
+http-server-concurrent  | HIT COUNTER STATISTICS
+http-server-concurrent  | ================================================================================
+http-server-concurrent  | Mode              : NAIVE
+http-server-concurrent  | Total Requests    : 50
+http-server-concurrent  | [COUNTER:NAIVE]  '/index.html': 9 → 10 (⚠️ race possible)
+http-server-concurrent  | [COUNTER:NAIVE]  '/index.html': 9 → 10 (⚠️ race possible)
+http-server-concurrent  | [COUNTER:NAIVE]  '/index.html': 9 → 10 (⚠️ race possible)
+http-server-concurrent  | Connected by ('172.18.0.3', 49164)
+http-server-concurrent  | Connected by ('172.18.0.3', 49168)
+http-server-concurrent  | Connected by ('172.18.0.3', 49170)
+http-server-concurrent  | [COUNTER:NAIVE]  '/index.html': 9 → 10 (⚠️ race possible)
+http-server-concurrent  | [COUNTER:NAIVE]  '/index.html': 10 → 11 (⚠️ race possible)
+http-server-concurrent  | [COUNTER:NAIVE]  '/index.html': 10 → 11 (⚠️ race possible)
+http-server-concurrent  | [COUNTER:NAIVE]  '/index.html': 10 → 11 (⚠️ race possible)
+http-server-concurrent  | [COUNTER:NAIVE]  '/index.html': 10 → 11 (⚠️ race possible)
+http-server-concurrent  | Connected by ('172.18.0.1', 46938)
+```
+Statistics report:
+```
+http-server-concurrent  | ================================================================================
+http-server-concurrent  | HIT COUNTER STATISTICS
+http-server-concurrent  | ================================================================================
+http-server-concurrent  | Mode              : NAIVE
+http-server-concurrent  | Total Requests    : 50
+http-server-concurrent  | Unique Paths      : 1
+http-server-concurrent  | Total Recorded Hits: 11
+http-server-concurrent  | Lost Updates      : 39 (78.0%)
+http-server-concurrent  |                     ⚠️  SIGNIFICANT DATA LOSS - Race condition detected!
+http-server-concurrent  | --------------------------------------------------------------------------------
+http-server-concurrent  | Top 5 paths by hits:
+http-server-concurrent  |     11 hits: /index.html
+http-server-concurrent  | ================================================================================
+http-server-concurrent  |
+http-server-concurrent  | Connected by ('172.18.0.1', 46952)
+http-server-concurrent  | Connected by ('172.18.0.1', 46956)
+```
+
+**Analysis:**
+- **Expected:** 50 requests → 50 hits
+- **Actual:** 50 requests → 11 hits
+- **Lost Updates:** 39 (78% data loss!)
+- **Evidence:** Multiple threads reading the same value simultaneously (e.g., four threads all read `9` and write `10`)
+
+**Screenshots:**
+
+<table>
+<tr>
+<td width="50%">
+
+![naive1](screenshots/naive1.png)
+
+</td>
+<td width="50%">
+
+![naive2](screenshots/naive2.png)
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+![naive3](screenshots/naive3.png)
+
+</td>
+<td width="50%">
+
+![naive4](screenshots/naive4.png)
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+![naive5](screenshots/naive5.png)
+
+</td>
+<td width="50%">
+
+![naive6](screenshots/naive6.png)
+
+</td>
+</tr>
+<tr>
+<td colspan="2" align="center">
+
+**🔴 Browser View: Only 11 hits recorded out of 50 requests (78% data loss)**
+
+![naive7](screenshots/naive7.png)
+
+</td>
+</tr>
+</table>
+
+---
+
+### Test 2: Locked Mode (Fixing the Race Condition)
+
+**Configuration:**
+- `COUNTER_MODE=locked` — Thread-safe with locks
+- `COUNTER_DELAY=0.01` — Same delay to show locks prevent races even under pressure
+- 50 concurrent requests to the same path
+
+**Commands:**
+```bat
+cd "Laboratory Work 2"
+set COUNTER_MODE=locked
+set COUNTER_DELAY=0.01
+set WORKERS=10
+set DELAY=0.0
+docker compose up -d --force-recreate server
+```
+
+Run benchmark on a different file to distinguish from the naive test:
+```bat
+docker compose run --rm bench python client/bench.py --host server --port 8000 --path /hello.html --concurrency 50 --timeout 30
+```
+
+Visit `http://localhost:8000/_stats` and check logs:
+```bat
+docker compose logs server --tail 50
+```
+
+**Results:**
+
+Server logs showing clean sequential increments:
+```
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 28 → 29
+http-server-concurrent  | Connected by ('172.18.0.3', 49112)
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 29 → 30
+http-server-concurrent  | Connected by ('172.18.0.3', 49118)
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 30 → 31
+http-server-concurrent  | Connected by ('172.18.0.3', 49126)
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 31 → 32
+http-server-concurrent  | Connected by ('172.18.0.3', 49140)
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 32 → 33
+http-server-concurrent  | Connected by ('172.18.0.3', 49146)
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 33 → 34
+http-server-concurrent  | Connected by ('172.18.0.3', 49154)
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 34 → 35
+http-server-concurrent  | Connected by ('172.18.0.3', 49166)
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 35 → 36
+http-server-concurrent  | Connected by ('172.18.0.3', 49180)
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 36 → 37
+http-server-concurrent  | Connected by ('172.18.0.3', 49186)
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 37 → 38
+http-server-concurrent  | Connected by ('172.18.0.3', 49188)
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 38 → 39
+http-server-concurrent  | Connected by ('172.18.0.3', 49204)
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 39 → 40
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 40 → 41
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 41 → 42
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 42 → 43
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 43 → 44
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 44 → 45
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 45 → 46
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 46 → 47
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 47 → 48
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 48 → 49
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 49 → 50
+http-server-concurrent  | Connected by ('172.18.0.1', 35524)
+http-server-concurrent  |
+http-server-concurrent  | ================================================================================
+http-server-concurrent  | HIT COUNTER STATISTICS
+http-server-concurrent  | ================================================================================
+http-server-concurrent  | Mode              : LOCKED
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 39 → 40
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 40 → 41
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 41 → 42
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 42 → 43
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 43 → 44
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 44 → 45
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 45 → 46
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 46 → 47
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 47 → 48
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 48 → 49
+http-server-concurrent  | [COUNTER:LOCKED] '/hello.html': 49 → 50
+http-server-concurrent  | Connected by ('172.18.0.1', 35524)
+```
+Statistics report:
+```
+http-server-concurrent  | ================================================================================
+http-server-concurrent  | HIT COUNTER STATISTICS
+http-server-concurrent  | ================================================================================
+http-server-concurrent  | Mode              : LOCKED
+http-server-concurrent  | Total Requests    : 50
+http-server-concurrent  | Unique Paths      : 1
+http-server-concurrent  | Total Recorded Hits: 50
+http-server-concurrent  | Lost Updates      : 0 (0.0%)
+http-server-concurrent  |                     ✓ No data loss - Synchronization working!
+http-server-concurrent  | Unique Paths      : 1
+http-server-concurrent  | Total Recorded Hits: 50
+http-server-concurrent  | Lost Updates      : 0 (0.0%)
+http-server-concurrent  |                     ✓ No data loss - Synchronization working!
+http-server-concurrent  |                     ✓ No data loss - Synchronization working!
+http-server-concurrent  | --------------------------------------------------------------------------------
+http-server-concurrent  | Top 5 paths by hits:
+http-server-concurrent  |     50 hits: /hello.html
+http-server-concurrent  | ================================================================================
+http-server-concurrent  |
+http-server-concurrent  | Connected by ('172.18.0.1', 35530)
+```
+
+**Analysis:**
+- **Expected:** 50 requests → 50 hits
+- **Actual:** 50 requests → 50 hits ✓
+- **Lost Updates:** 0 (0% data loss!)
+- **Evidence:** Clean sequential increments with no overlapping reads
+
+**Screenshots:**
+
+<table>
+<tr>
+<td width="50%">
+
+![lock1](screenshots/lock1.png)
+
+</td>
+<td width="50%">
+
+![lock2](screenshots/lock2.png)
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+![lock3](screenshots/lock3.png)
+
+</td>
+<td width="50%">
+
+![lock4](screenshots/lock4.png)
+
+</td>
+</tr>
+<tr>
+<td colspan="2" align="center">
+
+**✅ Browser View: Exactly 50 hits recorded out of 50 requests (0% data loss)**
+
+![lock5](screenshots/lock5.png)
+
+</td>
+</tr>
+</table>
+
+---
+
+### Conclusion
+
+The lock-based synchronization successfully prevents the race condition:
+- **Naive mode:** 78% data loss due to concurrent read-modify-write operations
+- **Locked mode:** 0% data loss with proper synchronization
+
+The `threading.Lock()` ensures that only one thread can execute the critical section at a time, preventing lost updates while still allowing concurrent request handling for different paths.

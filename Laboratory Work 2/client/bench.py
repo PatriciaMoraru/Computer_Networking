@@ -2,6 +2,7 @@ import time
 import socket
 import os
 import argparse
+from urllib.parse import quote
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
@@ -12,6 +13,8 @@ def get(host, port, path="/", timeout=20):
     """
     if not path.startswith("/"):
         path = "/" + path
+    # URL-encode spaces and other reserved chars in the request path
+    path = quote(path, safe="/%._-~")
     req = (
         f"GET {path} HTTP/1.1\r\n"
         f"Host: {host}\r\n"

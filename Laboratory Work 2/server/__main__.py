@@ -23,7 +23,23 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
     set_root(args.root)
-    print(f"[server] serving root: {Path(args.root).resolve()} on {args.host}:{args.port} (workers={args.workers}, delay={args.delay}s, counter={args.counter_mode}, counter_delay={args.counter_delay}s)")
+    
+    print("=" * 80)
+    print("HTTP FILE SERVER - Laboratory Work 2")
+    print("=" * 80)
+    print(f"Root Directory    : {Path(args.root).resolve()}")
+    print(f"Listening on      : {args.host}:{args.port}")
+    print(f"Worker Threads    : {args.workers}")
+    print(f"Request Delay     : {args.delay}s (simulated work)")
+    print("-" * 80)
+    print(f"COUNTER MODE      : {args.counter_mode.upper()}")
+    if args.counter_mode == "naive":
+        print(f"                    ⚠️  RACE CONDITION POSSIBLE (no synchronization)")
+    else:
+        print(f"                    ✓ Thread-safe (using locks)")
+    print(f"Counter Delay     : {args.counter_delay}s (for forcing race interleaving)")
+    print("=" * 80)
+    
     # Pass worker count, server delay, and counter configuration into HTTPServer.
     server = HTTPServer(
         host=args.host,

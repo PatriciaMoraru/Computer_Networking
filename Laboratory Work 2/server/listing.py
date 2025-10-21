@@ -26,6 +26,17 @@ def directory_to_links(dir_path, request_path, get_hits=None):
         if parts:
             crumbs[-1] = (escape(parts[-1]), crumbs[-1][1])
     breadcrumb_html = " / ".join(label for label, _ in crumbs)
+    
+    current_hits_html = ""
+    if get_hits:
+        req = request_path or "/"
+        # normalize like your hrefs do (dirs end with '/')
+        req = req if req.endswith("/") else req + "/"
+        current_hits_html = (
+            f"<div style='font-size:12px;margin:6px 0 10px 2px'>"
+            f"This directory hits: {get_hits(quote(req, safe='/'))}"
+            f"</div>"
+        )
 
     rows = []
     
@@ -96,6 +107,7 @@ def directory_to_links(dir_path, request_path, get_hits=None):
         f"<div class=\"wrap\">",
         f"<h1>{title}</h1>",
         f"<div class=\"crumbs\">{breadcrumb_html}</div>",
+        current_hits_html,
         "<table>",
         # Add a Hits column when a get_hits callback is provided.
         ("<thead><tr><th>Name</th><th>Last Modified</th><th>Hits</th></tr></thead>" if get_hits else "<thead><tr><th>Name</th><th>Last Modified</th></tr></thead>"),
