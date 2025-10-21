@@ -546,3 +546,211 @@ The lock-based synchronization successfully prevents the race condition:
 - **Locked mode:** 0% data loss with proper synchronization
 
 The `threading.Lock()` ensures that only one thread can execute the critical section at a time, preventing lost updates while still allowing concurrent request handling for different paths.
+
+---
+
+## Rate Limiting (Per-Client IP)
+
+This section demonstrates thread-safe rate limiting to protect the server from abuse while allowing legitimate users normal access.
+
+### Overview
+
+The server implements **per-IP rate limiting** using a sliding window algorithm:
+- Each client IP is tracked independently
+- Limit: **5 requests per second** per IP
+- Thread-safe using locks to prevent race conditions
+- Returns **429 Too Many Requests** when limit exceeded
+
+**Implementation:**
+```python
+def check_rate_limit(self, client_ip: str) -> bool:
+    current_time = time.time()
+    window_size = 1.0  # 1 second sliding window
+    
+    with self._rate_limit_lock:  # Thread-safe!
+        if client_ip not in self.rate_limit_window:
+            self.rate_limit_window[client_ip] = []
+        
+        timestamps = self.rate_limit_window[client_ip]
+        
+        # Remove old timestamps outside window
+        cutoff_time = current_time - window_size
+        timestamps[:] = [ts for ts in timestamps if ts > cutoff_time]
+        
+        # Check if under limit
+        if len(timestamps) < self.rate_limit:
+            timestamps.append(current_time)
+            return True  # Allow
+        else:
+            return False  # Block with 429
+```
+
+---
+
+### Test: Rate Limiting in Action
+
+**Configuration:**
+```bat
+cd "Laboratory Work 2"
+set RATE_LIMIT=5
+set WORKERS=10
+set DELAY=0.0
+set COUNTER_MODE=locked
+docker compose up -d --build server
+```
+
+**Run the test:**
+```bat
+docker compose run --rm bench python client/rate_limit_test.py --host server --port 8000 --path / --duration 10
+```
+
+This test simulates two scenarios:
+1. **Spammer**: Sends 10 req/s (exceeds limit)
+2. **Normal User**: Sends 4 req/s (below limit)
+
+**Results:**
+
+```
+================================================================================
+SPAMMER (10 req/s): 10 req/s for 10 seconds
+================================================================================
+  [  1] 200 OK       (0.076s)
+  [  2] 200 OK       (0.016s)
+  [  3] 200 OK       (0.018s)
+  [  4] 200 OK       (0.015s)
+  [  5] 200 OK       (0.014s)
+  [  6] 429 BLOCKED  (0.002s)  ← Rate limit hit!
+  [  7] 429 BLOCKED  (0.002s)
+  [  8] 429 BLOCKED  (0.002s)
+  [  9] 429 BLOCKED  (0.005s)
+  [ 10] 429 BLOCKED  (0.005s)
+  [ 11] 429 BLOCKED  (0.004s)
+  [ 12] 200 OK       (0.019s)  ← Window refreshed
+  [ 13] 200 OK       (0.020s)
+  [ 14] 200 OK       (0.014s)
+  [ 15] 200 OK       (0.014s)
+  [ 16] 200 OK       (0.017s)
+  [ 17] 429 BLOCKED  (0.006s)  ← Blocked again!
+  ...
+
+--------------------------------------------------------------------------------
+Results for SPAMMER (10 req/s):
+  Total Requests    : 80
+  Successful (200)  : 42
+  Blocked (429)     : 38
+  Errors            : 0
+  Avg Response Time : 0.013s
+  Throughput        : 4.20 req/s (successful only)
+================================================================================
+
+
+================================================================================
+NORMAL USER (4 req/s): 4 req/s for 10 seconds
+================================================================================
+  [  1] 429 BLOCKED  (0.005s)  ← Caught leftover from spammer
+  [  2] 429 BLOCKED  (0.005s)
+  [  3] 200 OK       (0.019s)
+  [  4] 200 OK       (0.019s)
+  [  5] 200 OK       (0.020s)
+  ...
+  [ 38] 200 OK       (0.018s)
+  [ 39] 200 OK       (0.017s)
+  [ 40] 200 OK       (0.020s)
+
+--------------------------------------------------------------------------------
+Results for NORMAL USER (4 req/s):
+  Total Requests    : 40
+  Successful (200)  : 38
+  Blocked (429)     : 2
+  Errors            : 0
+  Avg Response Time : 0.018s
+  Throughput        : 3.80 req/s (successful only)
+================================================================================
+
+
+================================================================================
+COMPARISON SUMMARY
+================================================================================
+Metric                    Spammer (10 req/s)        Normal (4 req/s)         
+--------------------------------------------------------------------------------
+Total Requests            80                        40                       
+Successful (200)          42                        38                       
+Blocked (429)             38                        2                        
+Throughput (req/s)        4.20                      3.80                     
+================================================================================
+
+Conclusion:
+✓ Rate limiting is working! Spammer was blocked 38 times.
+⚠ Normal user was blocked 2 times (may need to adjust rate).
+```
+
+---
+
+### Analysis
+
+**Spammer (10 req/s):**
+- Attempted to send 10 requests/second
+- **Rate limiter reduced throughput to 4.20 req/s** (enforcing the 5 req/s limit)
+- **38 out of 80 requests blocked** (47.5% rejection rate)
+- Pattern shows exactly 5 requests allowed per second, then blocked until window slides
+
+**Normal User (4 req/s):**
+- Stayed below the 5 req/s limit
+- **38 out of 40 requests succeeded** (95% success rate)
+- Only 2 blocked requests (caught in leftover window from concurrent spammer test)
+- Demonstrates legitimate users have good experience
+
+**Browser View - 429 Response:**
+
+![429 Too Many Requests](screenshots/429browser.png)
+
+**Terminal Output Screenshots:**
+
+<table>
+<tr>
+<td width="50%">
+
+![rate1](screenshots/rate1.png)
+
+</td>
+<td width="50%">
+
+![rate2](screenshots/rate2.png)
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+![rate3](screenshots/rate3.png)
+
+</td>
+<td width="50%">
+
+![rate4](screenshots/rate4.png)
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+![rate5](screenshots/rate5.png)
+
+</td>
+<td width="50%">
+
+![rate6](screenshots/rate6.png)
+
+</td>
+</tr>
+</table>
+
+---
+
+### Conclusion
+
+The rate limiter successfully protects the server from abuse:
+- **Spammers** are throttled down from 10 req/s to ~4.2 req/s effective throughput
+- **Normal users** maintain 95%+ success rate when staying under the limit
+- Thread-safe implementation prevents race conditions even under concurrent load
+- Demonstrates practical application of synchronization primitives for shared state management
