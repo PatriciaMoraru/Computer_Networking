@@ -824,10 +824,107 @@ Conclusion:
 
 ---
 
+### Demonstrating Per-IP Independence
+
+To prove that rate limiting is tracked per-IP independently, we tested with two different clients simultaneously:
+
+**Test Setup:**
+- **Client 1:** Automated spammer from Docker container (we ran again the rate_limit_test.py again) (IP: `172.18.0.3`)
+- **Client 2:** Manual browser access from iPad (IP: `172.18.0.1`)
+- Both accessing server at the same time
+
+![Server IP](screenshots/ipserver.png)
+![iPad screenshot](screenshots/ipad.png)
+
+**Commands:**
+```bat
+cd "Laboratory Work 2"
+set RATE_LIMIT=5
+set WORKERS=10
+set DELAY=0.0
+set COUNTER_MODE=locked
+set COUNTER_DELAY=0.0
+docker compose down
+docker compose up -d --build server
+```
+
+**Verify server started with rate limiting enabled:**
+```bat
+docker compose logs server --tail 20
+```
+
+![Server Startup with Rate Limiting](screenshots/per_ip_startup.png)
+
+**Run automated spammer from Docker (IP: 172.18.0.3):**
+```bat
+docker compose run --rm bench python client/rate_limit_test.py --host server --port 8000 --path / --duration 10
+```
+
+**Simultaneously:** Access from iPad browser (IP: 172.18.0.1) by rapidly refreshing `http://172.20.10.4:8000/`
+
+**Server logs show independent per-IP tracking:**
+```bat
+docker compose logs server --tail 250 | findstr RATE-LIMIT
+```
+
+**Results from logs:**
+```bash
+[RATE-LIMIT] 172.18.0.3: 5/5 ✗ BLOCKED (total blocked: 30)  # Docker - BLOCKED
+[RATE-LIMIT] 172.18.0.3: 5/5 ✗ BLOCKED (total blocked: 31)  # Docker - BLOCKED
+[RATE-LIMIT] 172.18.0.1: 1/5 ✓ allowed                       # iPad - WORKS!
+[RATE-LIMIT] 172.18.0.3: 5/5 ✗ BLOCKED (total blocked: 40)  # Docker - BLOCKED
+[RATE-LIMIT] 172.18.0.1: 2/5 ✓ allowed                       # iPad - STILL WORKS!
+[RATE-LIMIT] 172.18.0.3: 5/5 ✗ BLOCKED (total blocked: 41)  # Docker - BLOCKED
+```
+
+**Screenshots:**
+![Spammer Logs](screenshots/spammer.png)
+![Per-IP Logs Showing Independence](screenshots/per_ip_logs.png)
+
+**Analysis:**
+- **Docker container (172.18.0.3):** Sending 10 req/s → Gets blocked repeatedly (`5/5 BLOCKED`)
+- **iPad (172.18.0.1):** Manual refreshes at normal pace → Always allowed (`1/5`, `2/5` allowed)
+- **Total blocked:** 40+ requests from Docker IP
+- **iPad impact:** Zero - continues to access server normally
+- **Proof:** Each IP address has completely independent rate limit tracking
+
+**Code Implementation** (`http_server.py` lines 103-122):
+```python
+def check_rate_limit(self, client_ip: str) -> bool:
+    with self._rate_limit_lock:
+        # Each IP has its own timestamp list (dictionary key = IP)
+        if client_ip not in self.rate_limit_window:
+            self.rate_limit_window[client_ip] = []  # ← Separate tracking per IP!
+        
+        timestamps = self.rate_limit_window[client_ip]  # ← Get THIS IP's data only
+        
+        # Remove old timestamps for THIS IP only
+        cutoff_time = current_time - window_size
+        timestamps[:] = [ts for ts in timestamps if ts > cutoff_time]
+        
+        # Check if THIS IP is under limit
+        if len(timestamps) < self.rate_limit:
+            timestamps.append(current_time)
+            return True  # Allow this specific IP
+        else:
+            return False  # Block only this IP
+```
+
+**Data Structure:**
+```python
+self.rate_limit_window = {
+    '172.18.0.3': [ts1, ts2, ts3, ts4, ts5],  # Docker spammer - at limit → BLOCKED
+    '172.18.0.1': [ts1, ts2],                  # iPad - under limit → ALLOWED
+}
+```
+
+---
+
 ### Conclusion
 
 The rate limiter successfully protects the server from abuse:
 - **Spammers** are throttled down from 10 req/s to ~4.2 req/s effective throughput
 - **Normal users** maintain 95%+ success rate when staying under the limit
+- **Per-IP independence** proven: One IP getting blocked doesn't affect other IPs
 - Thread-safe implementation prevents race conditions even under concurrent load
 - Demonstrates practical application of synchronization primitives for shared state management
