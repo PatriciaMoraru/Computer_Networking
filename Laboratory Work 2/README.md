@@ -285,19 +285,29 @@ The server includes a **hit counter** that tracks how many times each path (file
 
 **The Problem:** In naive mode, the counter uses a simple read-modify-write pattern without synchronization:
 ```python
-# Thread-unsafe (naive mode)
-previous = self.hits.get(key, 0)  # READ
-self.hits[key] = previous + 1     # WRITE (race window!)
+# Thread-unsafe
+else:  # counter_mode == "naive"
+    previous = self.hits.get(key, 0)  # READ
+    self.hits[key] = previous + 1     # WRITE (race window!)
 ```
 
 When multiple threads execute this code concurrently on the same key, they can read the same `previous` value, then all write `previous + 1`, causing **lost updates**.
 
 **The Solution:** Use a lock to ensure atomic read-modify-write operations:
+
+First, create the lock in `__init__`:
 ```python
-# Thread-safe (locked mode)
-with self._hits_lock:
-    previous = self.hits.get(key, 0)
-    self.hits[key] = previous + 1
+# Initialize the lock 
+self._hits_lock = threading.Lock()
+```
+
+Then use it to protect the critical section:
+```python
+# Thread-safe 
+if self.counter_mode == "locked":
+    with self._hits_lock:  # Only one thread can enter this block at a time
+        previous = self.hits.get(key, 0)
+        self.hits[key] = previous + 1
 ```
 
 ---
