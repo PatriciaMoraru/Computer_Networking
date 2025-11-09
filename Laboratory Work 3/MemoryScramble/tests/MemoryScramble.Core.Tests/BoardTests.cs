@@ -3,6 +3,7 @@ using MemoryScramble.Core;
 
 namespace MemoryScramble.Core.Tests;
 
+// ===== PROBLEM 3: Tests updated to use async FlipAsync =====
 public class BoardTests
 {
     private const string PerfectBoardPath = "../../../../../boards/perfect.txt";
@@ -25,12 +26,12 @@ public class BoardTests
     }
 
     [Fact]
-    public void TestFlipFirstCard()
+    public async Task TestFlipFirstCard() // PROBLEM 3: Now async
     {
         var board = Board.ParseFromFile(PerfectBoardPath);
         
         // Player flips their first card at position (0, 0)
-        var outcome = board.Flip("alice", new Position(0, 0));
+        var outcome = await board.FlipAsync("alice", new Position(0, 0)); // PROBLEM 3: FlipAsync
         Assert.Equal(FlipOutcome.FirstControlled, outcome);
 
         // View the board - should see one card controlled by alice
@@ -43,16 +44,16 @@ public class BoardTests
     }
 
     [Fact]
-    public void TestFlipSecondCard_Match()
+    public async Task TestFlipSecondCard_Match() // PROBLEM 3: Now async
     {
         var board = Board.ParseFromFile(PerfectBoardPath);
         
         // Looking at perfect.txt: positions (0,0) and (0,1) both have 🦄
         // Player flips first card
-        board.Flip("alice", new Position(0, 0));
+        await board.FlipAsync("alice", new Position(0, 0)); // PROBLEM 3: FlipAsync
         
         // Player flips second card - should match!
-        var outcome = board.Flip("alice", new Position(0, 1));
+        var outcome = await board.FlipAsync("alice", new Position(0, 1)); // PROBLEM 3: FlipAsync
         Assert.Equal(FlipOutcome.SecondMatch, outcome);
 
         // Both cards should be controlled by alice
@@ -62,13 +63,13 @@ public class BoardTests
     }
 
     [Fact]
-    public void TestFlipSecondCard_NoMatch()
+    public async Task TestFlipSecondCard_NoMatch() // PROBLEM 3: Now async
     {
         var board = Board.ParseFromFile(PerfectBoardPath);
         
         // Looking at perfect.txt: (0,0) is 🦄 and (0,2) is 🌈 - they don't match
-        board.Flip("alice", new Position(0, 0));
-        var outcome = board.Flip("alice", new Position(0, 2));
+        await board.FlipAsync("alice", new Position(0, 0)); // PROBLEM 3: FlipAsync
+        var outcome = await board.FlipAsync("alice", new Position(0, 2)); // PROBLEM 3: FlipAsync
         
         Assert.Equal(FlipOutcome.SecondNoMatch, outcome);
 
@@ -79,16 +80,16 @@ public class BoardTests
     }
 
     [Fact]
-    public void TestCleanup_RemoveMatchedCards()
+    public async Task TestCleanup_RemoveMatchedCards() // PROBLEM 3: Now async
     {
         var board = Board.ParseFromFile(PerfectBoardPath);
         
         // Alice makes a match
-        board.Flip("alice", new Position(0, 0)); // 🦄
-        board.Flip("alice", new Position(0, 1)); // 🦄 - match!
+        await board.FlipAsync("alice", new Position(0, 0)); // PROBLEM 3: FlipAsync - 🦄
+        await board.FlipAsync("alice", new Position(0, 1)); // PROBLEM 3: FlipAsync - 🦄 - match!
 
         // Alice flips a new first card - this should remove the matched cards
-        board.Flip("alice", new Position(1, 0));
+        await board.FlipAsync("alice", new Position(1, 0)); // PROBLEM 3: FlipAsync
 
         var state = board.ViewBy("alice");
         Assert.Equal("none", state.Spots[0]); // Removed
@@ -97,13 +98,13 @@ public class BoardTests
     }
 
     [Fact]
-    public void TestCleanup_TurnDownNonMatched()
+    public async Task TestCleanup_TurnDownNonMatched() // PROBLEM 3: Now async
     {
         var board = Board.ParseFromFile(PerfectBoardPath);
         
         // Alice flips two non-matching cards
-        board.Flip("alice", new Position(0, 0)); // 🦄
-        board.Flip("alice", new Position(0, 2)); // 🌈 - no match
+        await board.FlipAsync("alice", new Position(0, 0)); // PROBLEM 3: FlipAsync - 🦄
+        await board.FlipAsync("alice", new Position(0, 2)); // PROBLEM 3: FlipAsync - 🌈 - no match
 
         // Cards should be face up
         var state1 = board.ViewBy("alice");
@@ -111,7 +112,7 @@ public class BoardTests
         Assert.StartsWith("up", state1.Spots[2]);
 
         // Alice flips a new first card - this should turn down the non-matched cards
-        board.Flip("alice", new Position(1, 0));
+        await board.FlipAsync("alice", new Position(1, 0)); // PROBLEM 3: FlipAsync
 
         var state2 = board.ViewBy("alice");
         Assert.Equal("down", state2.Spots[0]); // Turned back down
@@ -119,17 +120,17 @@ public class BoardTests
     }
 
     [Fact]
-    public void TestFlipEmptySpace_Fails()
+    public async Task TestFlipEmptySpace_Fails() // PROBLEM 3: Now async
     {
         var board = Board.ParseFromFile(PerfectBoardPath);
         
         // Alice makes a match and removes cards
-        board.Flip("alice", new Position(0, 0));
-        board.Flip("alice", new Position(0, 1));
-        board.Flip("alice", new Position(1, 0)); // Triggers cleanup, removes the match
+        await board.FlipAsync("alice", new Position(0, 0)); // PROBLEM 3: FlipAsync
+        await board.FlipAsync("alice", new Position(0, 1)); // PROBLEM 3: FlipAsync
+        await board.FlipAsync("alice", new Position(1, 0)); // PROBLEM 3: FlipAsync - Triggers cleanup, removes the match
 
         // Now try to flip the empty space
-        var outcome = board.Flip("bob", new Position(0, 0));
+        var outcome = await board.FlipAsync("bob", new Position(0, 0)); // PROBLEM 3: FlipAsync
         Assert.Equal(FlipOutcome.FailNoCard, outcome);
     }
 

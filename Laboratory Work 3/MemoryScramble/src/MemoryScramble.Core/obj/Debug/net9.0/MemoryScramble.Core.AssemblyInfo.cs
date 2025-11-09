@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("MemoryScramble.Core")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+523f4082561d19a1b6e509ce4d15391e93e507a1")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+d95f2b11187405f6d5dac844139d577a068b9266")]
 [assembly: System.Reflection.AssemblyProductAttribute("MemoryScramble.Core")]
 [assembly: System.Reflection.AssemblyTitleAttribute("MemoryScramble.Core")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

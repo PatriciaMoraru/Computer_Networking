@@ -138,6 +138,10 @@ public sealed class Board
         public bool FaceUp;
         public string? ControlledBy;
         public bool IsEmpty => Symbol is null;
+        
+        // === PROBLEM 3: Added for concurrent player support ===
+        // Queue of players waiting to control this card
+        public Queue<TaskCompletionSource<bool>> WaitingQueue { get; } = new();
     }
 
     private sealed class PlayerState
@@ -151,6 +155,9 @@ public sealed class Board
     private readonly int _cols;
     private readonly CardSlot[,] _grid;
     private readonly Dictionary<string, PlayerState> _players = new(StringComparer.Ordinal);
+    
+    // === PROBLEM 3: Added lock for thread-safe concurrent access ===
+    private readonly object _lock = new();
 
     [Conditional("DEBUG")]
     private void checkRep()
@@ -292,14 +299,12 @@ public sealed class Board
 
     // ========== Public Methods ==========
 
+    /* ===== PROBLEM 2: SYNCHRONOUS VERSION (commented out for Problem 3) =====
     /// <summary>
     /// Attempt to flip a card at the specified position for the given player.
     /// Follows the Memory Scramble game rules for first/second card flips and cleanup.
+    /// THIS WAS THE SYNCHRONOUS VERSION - replaced with async version in Problem 3
     /// </summary>
-    /// <param name="playerId">The ID of the player making the flip</param>
-    /// <param name="position">The position of the card to flip</param>
-    /// <returns>The outcome of the flip attempt</returns>
-    /// <exception cref="InvalidPositionException">If position is outside board bounds</exception>
     public FlipOutcome Flip(string playerId, Position position)
     {
         // Validate position
@@ -314,8 +319,7 @@ public sealed class Board
         var slot = _grid[position.Row, position.Col];
 
         // Determine if this is a first or second card flip
-        // First card if: no cards controlled (0) OR matched pair controlled (2)
-        bool isFirstCard = player.Controlled.Count != 1;
+        bool isFirstCard = player.Controlled.Count == 0;
 
         if (isFirstCard)
         {
@@ -331,9 +335,65 @@ public sealed class Board
             return FlipSecondCard(playerId, player, position, slot);
         }
     }
+    ===== END SYNCHRONOUS VERSION ===== */
+
+    // ===== PROBLEM 3: ASYNCHRONOUS VERSION WITH WAITING SUPPORT =====
+    /// <summary>
+    /// Attempt to flip a card at the specified position for the given player.
+    /// Follows the Memory Scramble game rules for first/second card flips and cleanup.
+    /// Supports concurrent players with proper waiting when cards are controlled.
+    /// </summary>
+    /// <param name="playerId">The ID of the player making the flip</param>
+    /// <param name="position">The position of the card to flip</param>
+    /// <returns>The outcome of the flip attempt</returns>
+    /// <exception cref="InvalidPositionException">If position is outside board bounds</exception>
+    public async Task<FlipOutcome> FlipAsync(string playerId, Position position)
+    {
+        // Validate position
+        if (position.Row < 0 || position.Row >= _rows || position.Col < 0 || position.Col >= _cols)
+            throw new InvalidPositionException(position);
+
+        lock (_lock)
+        {
+            // Get or create player state
+            if (!_players.ContainsKey(playerId))
+                _players[playerId] = new PlayerState();
+        }
+
+        var player = _players[playerId];
+        
+        // Determine if this is a first or second card flip
+        // First card if: no cards controlled (0) OR matched pair controlled (2)
+        bool isFirstCard;
+        lock (_lock)
+        {
+            isFirstCard = player.Controlled.Count != 1;
+        }
+
+        if (isFirstCard)
+        {
+            // Before flipping a new first card, handle cleanup from previous turn (Rule 3)
+            lock (_lock)
+            {
+                HandleCleanup(player);
+            }
+
+            // Now flip the first card (Rule 1) - may need to wait
+            return await FlipFirstCardAsync(playerId, player, position);
+        }
+        else
+        {
+            // Flip second card (Rule 2)
+            lock (_lock)
+            {
+                return FlipSecondCard(playerId, player, position, _grid[position.Row, position.Col]);
+            }
+        }
+    }
 
     /// <summary>
     /// Handles cleanup before a player flips a new first card (Rule 3-A and 3-B).
+    /// PROBLEM 3: Now notifies waiting players when cards are released.
     /// </summary>
     private void HandleCleanup(PlayerState player)
     {
@@ -346,6 +406,9 @@ public sealed class Board
                 slot.Symbol = null; // Remove card
                 slot.FaceUp = false;
                 slot.ControlledBy = null;
+                
+                // PROBLEM 3: Notify waiting players that card is now available
+                NotifyWaitingPlayers(slot);
             }
             player.Controlled.Clear();
         }
@@ -368,8 +431,10 @@ public sealed class Board
         checkRep();
     }
 
+    /* ===== PROBLEM 2: SYNCHRONOUS FlipFirstCard (commented out for Problem 3) =====
     /// <summary>
     /// Handles flipping the first card in a pair (Rule 1).
+    /// THIS WAS THE SYNCHRONOUS VERSION - replaced with async version in Problem 3
     /// </summary>
     private FlipOutcome FlipFirstCard(string playerId, PlayerState player, Position position, CardSlot slot)
     {
@@ -382,7 +447,6 @@ public sealed class Board
 
         // Rule 1-D: Card is controlled by another player
         // For synchronous version, we don't wait - we just fail
-        // (In async version, this would wait)
         if (slot.ControlledBy != null && slot.ControlledBy != playerId)
         {
             checkRep();
@@ -401,6 +465,88 @@ public sealed class Board
 
         checkRep();
         return FlipOutcome.FirstControlled;
+    }
+    ===== END SYNCHRONOUS VERSION ===== */
+
+    // ===== PROBLEM 3: ASYNC FlipFirstCard WITH WAITING SUPPORT =====
+    /// <summary>
+    /// Handles flipping the first card in a pair (Rule 1).
+    /// ASYNC VERSION: Waits if card is controlled by another player.
+    /// </summary>
+    private async Task<FlipOutcome> FlipFirstCardAsync(string playerId, PlayerState player, Position position)
+    {
+        CardSlot slot;
+        lock (_lock)
+        {
+            slot = _grid[position.Row, position.Col];
+            
+            // Rule 1-A: No card at this position
+            if (slot.IsEmpty)
+            {
+                checkRep();
+                return FlipOutcome.FailNoCard;
+            }
+        }
+
+        // Rule 1-D: Card is controlled by another player - WAIT for it
+        TaskCompletionSource<bool>? waitTask = null;
+        lock (_lock)
+        {
+            if (slot.ControlledBy != null && slot.ControlledBy != playerId)
+            {
+                // Add this player to the waiting queue
+                waitTask = new TaskCompletionSource<bool>();
+                slot.WaitingQueue.Enqueue(waitTask);
+            }
+        }
+
+        // Wait outside the lock if necessary
+        if (waitTask != null)
+        {
+            await waitTask.Task;
+            // After waiting, try again (card should now be available)
+            lock (_lock)
+            {
+                slot = _grid[position.Row, position.Col];
+            }
+        }
+
+        // Now take control of the card
+        lock (_lock)
+        {
+            // Re-check if card still exists (might have been removed while waiting)
+            if (slot.IsEmpty)
+            {
+                checkRep();
+                return FlipOutcome.FailNoCard;
+            }
+
+            // Rule 1-B: Card is face down - flip it up
+            if (!slot.FaceUp)
+            {
+                slot.FaceUp = true;
+            }
+
+            // Rule 1-C: Card is already face up but not controlled - we can control it
+            slot.ControlledBy = playerId;
+            player.Controlled.Add(position);
+
+            checkRep();
+            return FlipOutcome.FirstControlled;
+        }
+    }
+
+    /// <summary>
+    /// PROBLEM 3: Notifies waiting players that a card is now available.
+    /// </summary>
+    private void NotifyWaitingPlayers(CardSlot slot)
+    {
+        // Notify the next waiting player (if any)
+        if (slot.WaitingQueue.Count > 0)
+        {
+            var nextWaiter = slot.WaitingQueue.Dequeue();
+            nextWaiter.SetResult(true); // Wake up the waiting player
+        }
     }
 
     /// <summary>
@@ -453,6 +599,10 @@ public sealed class Board
             player.LastShown.Add(firstPos);
             player.LastShown.Add(position);
             firstSlot.ControlledBy = null;
+            
+            // PROBLEM 3: Notify any players waiting for the first card
+            NotifyWaitingPlayers(firstSlot);
+            
             player.Controlled.Clear();
             player.Pending = PlayerTurnStatus.NoMatchShown;
 
@@ -463,6 +613,7 @@ public sealed class Board
 
     /// <summary>
     /// Helper to relinquish control of all cards (but leave them face up).
+    /// PROBLEM 3: Now notifies waiting players when cards are released.
     /// </summary>
     private void RelinquishControl(PlayerState player)
     {
@@ -470,6 +621,9 @@ public sealed class Board
         {
             var slot = _grid[pos.Row, pos.Col];
             slot.ControlledBy = null;
+            
+            // PROBLEM 3: Notify waiting players that this card is now available
+            NotifyWaitingPlayers(slot);
         }
         player.LastShown.AddRange(player.Controlled);
         player.Controlled.Clear();

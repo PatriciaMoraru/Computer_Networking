@@ -69,7 +69,8 @@ app.MapGet("/look/{playerId}", (string playerId) =>
 
 // GET /flip/{playerId}/{row},{col}
 // Flips a card and returns the updated board state
-app.MapGet("/flip/{playerId}/{position}", (string playerId, string position) =>
+// PROBLEM 3: Now uses async FlipAsync for proper waiting support
+app.MapGet("/flip/{playerId}/{position}", async (string playerId, string position) =>
 {
     try
     {
@@ -80,7 +81,8 @@ app.MapGet("/flip/{playerId}/{position}", (string playerId, string position) =>
             return Results.BadRequest("Position must be in format 'row,col'");
         }
 
-        string boardState = Commands.Flip(board, playerId, row, col);
+        // PROBLEM 3: Use async FlipAsync which supports waiting
+        string boardState = await Commands.FlipAsync(board, playerId, row, col);
         return Results.Text(boardState, "text/plain");
     }
     catch (InvalidOperationException ex)

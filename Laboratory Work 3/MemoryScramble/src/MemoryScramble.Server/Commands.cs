@@ -19,8 +19,24 @@ public static class Commands
         return board.ViewBy(playerId).ToProtocolString();
     }
 
+    /* ===== PROBLEM 2: SYNCHRONOUS VERSION (commented out for Problem 3) =====
     /// <summary>
     /// Tries to flip over a card on the board, following the game rules.
+    /// THIS WAS THE SYNCHRONOUS VERSION - replaced with async version in Problem 3
+    /// </summary>
+    public static string Flip(Board board, string playerId, int row, int column)
+    {
+        var outcome = board.Flip(playerId, new Position(row, column));
+        if (outcome == FlipOutcome.FailNoCard || outcome == FlipOutcome.FailControlled)
+            throw new InvalidOperationException($"Flip failed: {outcome}");
+        return board.ViewBy(playerId).ToProtocolString();
+    }
+    ===== END SYNCHRONOUS VERSION ===== */
+
+    // ===== PROBLEM 3: ASYNCHRONOUS VERSION WITH WAITING SUPPORT =====
+    /// <summary>
+    /// Tries to flip over a card on the board, following the game rules.
+    /// ASYNC VERSION: Properly waits when cards are controlled by other players.
     /// </summary>
     /// <param name="board">A Memory Scramble board</param>
     /// <param name="playerId">ID of player making the flip</param>
@@ -28,9 +44,9 @@ public static class Commands
     /// <param name="column">Column number of card to flip</param>
     /// <returns>The state of the board after the flip</returns>
     /// <exception cref="InvalidOperationException">If the flip operation fails</exception>
-    public static string Flip(Board board, string playerId, int row, int column)
+    public static async Task<string> FlipAsync(Board board, string playerId, int row, int column)
     {
-        var outcome = board.Flip(playerId, new Position(row, column));
+        var outcome = await board.FlipAsync(playerId, new Position(row, column));
         if (outcome == FlipOutcome.FailNoCard || outcome == FlipOutcome.FailControlled)
             throw new InvalidOperationException($"Flip failed: {outcome}");
         return board.ViewBy(playerId).ToProtocolString();
