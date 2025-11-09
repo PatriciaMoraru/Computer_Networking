@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "boVdwnoRS00=",
+  "success": true,
+  "projectFilePath": "c:\\Visual Studio Code Projects\\Computer Networking\\Laboratory Work 3\\MemoryScramble\\src\\MemoryScramble.Server\\MemoryScramble.Server.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\Felicia\\.nuget\\packages\\microsoft.aspnetcore.openapi\\9.0.10\\microsoft.aspnetcore.openapi.9.0.10.nupkg.sha512",
+    "C:\\Users\\Felicia\\.nuget\\packages\\microsoft.openapi\\1.6.17\\microsoft.openapi.1.6.17.nupkg.sha512"
+  ],
+  "logs": []
+}

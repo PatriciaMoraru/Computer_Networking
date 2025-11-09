@@ -1,0 +1,7 @@
+﻿services:
+  memoryscramble:
+    image: memoryscramble
+    build:
+      context: .
+      dockerfile: MemoryScramble/Dockerfile
+
