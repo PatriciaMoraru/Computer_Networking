@@ -97,11 +97,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "c:\\Visual Studio Code Projects\\Computer Networking\\Laboratory Work 3\\MemoryScramble\\src\\MemoryScramble.Server\\MemoryScramble.Server.csproj",
+      "projectUniqueName": "C:\\Visual Studio Code Projects\\Computer Networking\\Laboratory Work 3\\MemoryScramble\\src\\MemoryScramble.Server\\MemoryScramble.Server.csproj",
       "projectName": "MemoryScramble.Server",
-      "projectPath": "c:\\Visual Studio Code Projects\\Computer Networking\\Laboratory Work 3\\MemoryScramble\\src\\MemoryScramble.Server\\MemoryScramble.Server.csproj",
+      "projectPath": "C:\\Visual Studio Code Projects\\Computer Networking\\Laboratory Work 3\\MemoryScramble\\src\\MemoryScramble.Server\\MemoryScramble.Server.csproj",
       "packagesPath": "C:\\Users\\Felicia\\.nuget\\packages\\",
-      "outputPath": "c:\\Visual Studio Code Projects\\Computer Networking\\Laboratory Work 3\\MemoryScramble\\src\\MemoryScramble.Server\\obj\\",
+      "outputPath": "C:\\Visual Studio Code Projects\\Computer Networking\\Laboratory Work 3\\MemoryScramble\\src\\MemoryScramble.Server\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
@@ -116,14 +116,15 @@
       ],
       "sources": {
         "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+        "C:\\Program Files\\dotnet\\library-packs": {},
         "https://api.nuget.org/v3/index.json": {}
       },
       "frameworks": {
         "net9.0": {
           "targetAlias": "net9.0",
           "projectReferences": {
-            "c:\\Visual Studio Code Projects\\Computer Networking\\Laboratory Work 3\\MemoryScramble\\src\\MemoryScramble.Core\\MemoryScramble.Core.csproj": {
-              "projectPath": "c:\\Visual Studio Code Projects\\Computer Networking\\Laboratory Work 3\\MemoryScramble\\src\\MemoryScramble.Core\\MemoryScramble.Core.csproj"
+            "C:\\Visual Studio Code Projects\\Computer Networking\\Laboratory Work 3\\MemoryScramble\\src\\MemoryScramble.Core\\MemoryScramble.Core.csproj": {
+              "projectPath": "C:\\Visual Studio Code Projects\\Computer Networking\\Laboratory Work 3\\MemoryScramble\\src\\MemoryScramble.Core\\MemoryScramble.Core.csproj"
             }
           }
         }
@@ -138,7 +139,7 @@
         "auditLevel": "low",
         "auditMode": "direct"
       },
-      "SdkAnalysisLevel": "9.0.300"
+      "SdkAnalysisLevel": "9.0.100"
     },
     "frameworks": {
       "net9.0": {
@@ -168,7 +169,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Users\\Felicia\\.dotnet\\sdk\\9.0.306/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.101/PortableRuntimeIdentifierGraph.json"
       }
     }
   }

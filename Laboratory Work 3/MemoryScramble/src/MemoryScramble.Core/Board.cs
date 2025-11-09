@@ -314,7 +314,8 @@ public sealed class Board
         var slot = _grid[position.Row, position.Col];
 
         // Determine if this is a first or second card flip
-        bool isFirstCard = player.Controlled.Count == 0;
+        // First card if: no cards controlled (0) OR matched pair controlled (2)
+        bool isFirstCard = player.Controlled.Count != 1;
 
         if (isFirstCard)
         {
