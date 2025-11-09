@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "O2HWEAq0YD8=",
+  "dgSpecHash": "/0d9O6iBmmI=",
   "success": true,
-  "projectFilePath": "c:\\Visual Studio Code Projects\\Computer Networking\\Laboratory Work 3\\MemoryScramble\\tests\\MemoryScramble.Core.Tests\\MemoryScramble.Core.Tests.csproj",
+  "projectFilePath": "C:\\Visual Studio Code Projects\\Computer Networking\\Laboratory Work 3\\MemoryScramble\\tests\\MemoryScramble.Core.Tests\\MemoryScramble.Core.Tests.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\Felicia\\.nuget\\packages\\coverlet.collector\\6.0.2\\coverlet.collector.6.0.2.nupkg.sha512",
     "C:\\Users\\Felicia\\.nuget\\packages\\microsoft.codecoverage\\17.12.0\\microsoft.codecoverage.17.12.0.nupkg.sha512",

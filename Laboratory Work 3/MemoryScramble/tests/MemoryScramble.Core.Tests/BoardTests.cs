@@ -1,6 +1,4 @@
-﻿using System.Diagnostics;
-using System.Text;
-using Xunit;
+﻿using Xunit;
 using MemoryScramble.Core;
 
 namespace MemoryScramble.Core.Tests;
@@ -155,8 +153,8 @@ public class BoardTests
         // Should start with "3x3\n"
         Assert.StartsWith("3x3\n", protocol);
         
-        // Should have 10 lines total (1 dimension line + 9 cards)
-        var lines = protocol.Split('\n');
-        Assert.Equal(10, lines.Length); // Including empty last line
+        // Should have 10 non-empty lines (1 dimension line + 9 cards)
+        var lines = protocol.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(10, lines.Length);
     }
 }
