@@ -158,6 +158,9 @@ public sealed class Board
     
     // === PROBLEM 3: Added lock for thread-safe concurrent access ===
     private readonly object _lock = new();
+    
+    // === PROBLEM 5: Watch functionality - list of watchers waiting for board changes ===
+    private readonly List<TaskCompletionSource<bool>> _watchers = new();
 
     [Conditional("DEBUG")]
     private void checkRep()
@@ -353,31 +356,31 @@ public sealed class Board
         if (position.Row < 0 || position.Row >= _rows || position.Col < 0 || position.Col >= _cols)
             throw new InvalidPositionException(position);
 
+        PlayerState player;
+        bool isFirstCard;
+        
+        // === ALL player state access must be inside lock to prevent race conditions ===
         lock (_lock)
         {
             // Get or create player state
             if (!_players.ContainsKey(playerId))
                 _players[playerId] = new PlayerState();
-        }
-
-        var player = _players[playerId];
-        
-        // Determine if this is a first or second card flip
-        // First card if: no cards controlled (0) OR matched pair controlled (2)
-        bool isFirstCard;
-        lock (_lock)
-        {
+            
+            player = _players[playerId];
+            
+            // Determine if this is a first or second card flip
+            // First card if: no cards controlled (0) OR matched pair controlled (2)
             isFirstCard = player.Controlled.Count != 1;
+            
+            // If first card, handle cleanup from previous turn (Rule 3)
+            if (isFirstCard)
+            {
+                HandleCleanup(player);
+            }
         }
 
         if (isFirstCard)
         {
-            // Before flipping a new first card, handle cleanup from previous turn (Rule 3)
-            lock (_lock)
-            {
-                HandleCleanup(player);
-            }
-
             // Now flip the first card (Rule 1) - may need to wait
             return await FlipFirstCardAsync(playerId, player, position);
         }
@@ -411,10 +414,14 @@ public sealed class Board
                 NotifyWaitingPlayers(slot);
             }
             player.Controlled.Clear();
+            
+            // PROBLEM 5: Notify watchers that cards were removed
+            NotifyWatchers();
         }
         else if (player.Pending == PlayerTurnStatus.NoMatchShown)
         {
             // Rule 3-B: Turn face-down any unmatched cards that are still face-up and not controlled
+            bool anyFlipped = false;
             foreach (var pos in player.LastShown)
             {
                 var slot = _grid[pos.Row, pos.Col];
@@ -422,9 +429,18 @@ public sealed class Board
                 if (!slot.IsEmpty && slot.FaceUp && slot.ControlledBy == null)
                 {
                     slot.FaceUp = false;
+                    anyFlipped = true;
+                    // PROBLEM 3: Notify waiting players that card is now face down (they can flip it)
+                    NotifyWaitingPlayers(slot);
                 }
             }
             player.LastShown.Clear();
+            
+            // PROBLEM 5: Notify watchers if any cards were flipped face down
+            if (anyFlipped)
+            {
+                NotifyWatchers();
+            }
         }
 
         player.Pending = PlayerTurnStatus.Unfinished;
@@ -504,32 +520,49 @@ public sealed class Board
         if (waitTask != null)
         {
             await waitTask.Task;
-            // After waiting, try again (card should now be available)
-            lock (_lock)
-            {
-                slot = _grid[position.Row, position.Col];
-            }
+            // After waiting, we were notified that the card was released
+            // Now we need to re-acquire the lock and take control
         }
 
-        // Now take control of the card
+        // Now take control of the card (must re-acquire lock after waiting)
         lock (_lock)
         {
+            // Re-read slot in case it changed while we were waiting
+            slot = _grid[position.Row, position.Col];
+            
             // Re-check if card still exists (might have been removed while waiting)
             if (slot.IsEmpty)
             {
                 checkRep();
                 return FlipOutcome.FailNoCard;
             }
+            
+            // Re-check if card is still uncontrolled (another player might have grabbed it)
+            if (slot.ControlledBy != null && slot.ControlledBy != playerId)
+            {
+                // Card was taken by someone else after we woke up - this shouldn't happen
+                // in our current implementation, but add safety check anyway
+                checkRep();
+                return FlipOutcome.FailControlled;
+            }
 
             // Rule 1-B: Card is face down - flip it up
+            bool wasFlipped = false;
             if (!slot.FaceUp)
             {
                 slot.FaceUp = true;
+                wasFlipped = true;
             }
 
             // Rule 1-C: Card is already face up but not controlled - we can control it
             slot.ControlledBy = playerId;
             player.Controlled.Add(position);
+
+            // PROBLEM 5: Notify watchers if card was flipped face up
+            if (wasFlipped)
+            {
+                NotifyWatchers();
+            }
 
             checkRep();
             return FlipOutcome.FirstControlled;
@@ -573,9 +606,17 @@ public sealed class Board
         }
 
         // Rule 2-C: Flip card face up if needed
+        bool wasFlipped = false;
         if (!slot.FaceUp)
         {
             slot.FaceUp = true;
+            wasFlipped = true;
+        }
+
+        // PROBLEM 5: Notify watchers if card was flipped face up
+        if (wasFlipped)
+        {
+            NotifyWatchers();
         }
 
         // Now check if the cards match
@@ -600,11 +641,14 @@ public sealed class Board
             player.LastShown.Add(position);
             firstSlot.ControlledBy = null;
             
-            // PROBLEM 3: Notify any players waiting for the first card
-            NotifyWaitingPlayers(firstSlot);
-            
+            // CRITICAL: Clear player's Controlled list BEFORE notifying waiting players
+            // Otherwise, the waiting player might take control while this player still
+            // has the card in their Controlled list, causing two players to control the same card!
             player.Controlled.Clear();
             player.Pending = PlayerTurnStatus.NoMatchShown;
+            
+            // PROBLEM 3: Notify any players waiting for the first card
+            NotifyWaitingPlayers(firstSlot);
 
             checkRep();
             return FlipOutcome.SecondNoMatch;
@@ -617,17 +661,148 @@ public sealed class Board
     /// </summary>
     private void RelinquishControl(PlayerState player)
     {
-        foreach (var pos in player.Controlled)
+        // First, collect positions and clear ControlledBy on slots
+        var positions = new List<Position>(player.Controlled);
+        foreach (var pos in positions)
         {
             var slot = _grid[pos.Row, pos.Col];
             slot.ControlledBy = null;
-            
-            // PROBLEM 3: Notify waiting players that this card is now available
-            NotifyWaitingPlayers(slot);
         }
+        
+        // CRITICAL: Update player state BEFORE notifying waiting players
         player.LastShown.AddRange(player.Controlled);
         player.Controlled.Clear();
         player.Pending = PlayerTurnStatus.NoMatchShown;
+        
+        // NOW notify waiting players (after player.Controlled is cleared)
+        foreach (var pos in positions)
+        {
+            var slot = _grid[pos.Row, pos.Col];
+            NotifyWaitingPlayers(slot);
+        }
+    }
+
+    /// <summary>
+    /// Modifies the board by replacing every card with f(card), without affecting other state.
+    /// This operation can interleave with other operations. The board remains observably 
+    /// pairwise consistent: if two cards match before map(), they will always be observed 
+    /// as matching during and after map().
+    /// </summary>
+    /// <param name="playerId">ID of player applying the map</param>
+    /// <param name="transformer">Pure function from cards to cards (async)</param>
+    /// <returns>The state of the board after replacement from playerId's perspective</returns>
+    public async Task<BoardState> MapAsync(string playerId, Func<string, Task<string>> transformer)
+    {
+        // STEP 1: Collect all unique symbols on the board (quick operation with lock)
+        HashSet<string> uniqueSymbols;
+        lock (_lock)
+        {
+            uniqueSymbols = new HashSet<string>();
+            for (int r = 0; r < _rows; r++)
+            {
+                for (int c = 0; c < _cols; c++)
+                {
+                    var slot = _grid[r, c];
+                    if (!slot.IsEmpty)
+                    {
+                        uniqueSymbols.Add(slot.Symbol!);
+                    }
+                }
+            }
+        }
+        // Lock released! Other operations can now interleave.
+
+        // STEP 2: Transform each unique symbol (slow operation WITHOUT lock)
+        var transformations = new Dictionary<string, string>();
+        foreach (var symbol in uniqueSymbols)
+        {
+            var newSymbol = await transformer(symbol);
+            transformations[symbol] = newSymbol;
+        }
+        // Other operations (flip, look, even other map) could have interleaved during awaits!
+
+        // STEP 3: Apply all transformations atomically (quick operation with lock)
+        lock (_lock)
+        {
+            bool anyChanged = false;
+            for (int r = 0; r < _rows; r++)
+            {
+                for (int c = 0; c < _cols; c++)
+                {
+                    var slot = _grid[r, c];
+                    // Only transform if card still exists and we have a transformation for it
+                    if (!slot.IsEmpty && transformations.ContainsKey(slot.Symbol!))
+                    {
+                        slot.Symbol = transformations[slot.Symbol!];
+                        anyChanged = true;
+                    }
+                    // Note: Cards that were added/removed during Step 2 are handled gracefully:
+                    // - Removed cards: !slot.IsEmpty check skips them
+                    // - Added cards: Not in transformations map, so skipped
+                }
+            }
+            
+            // PROBLEM 5: Notify watchers if any symbols changed
+            if (anyChanged)
+            {
+                NotifyWatchers();
+            }
+            
+            checkRep();
+        }
+
+        // STEP 4: Return the updated board state from this player's perspective
+        return ViewBy(playerId);
+    }
+
+    // ===== PROBLEM 5: WATCH FUNCTIONALITY =====
+    
+    /// <summary>
+    /// Waits asynchronously until the board changes.
+    /// A change is defined as: cards flip up/down, removed, or symbols change.
+    /// Control changes (take/release without flipping) do NOT trigger this.
+    /// </summary>
+    /// <returns>A task that completes when the board changes</returns>
+    public async Task WaitForChangeAsync()
+    {
+        TaskCompletionSource<bool> watcher;
+        lock (_lock)
+        {
+            watcher = new TaskCompletionSource<bool>();
+            _watchers.Add(watcher);
+        }
+        // Wait outside the lock - this allows other operations to proceed
+        await watcher.Task;
+    }
+
+    /// <summary>
+    /// Notifies all waiting watchers that the board has changed.
+    /// Must be called inside a lock(_lock) block.
+    /// </summary>
+    private void NotifyWatchers()
+    {
+        foreach (var watcher in _watchers)
+        {
+            watcher.TrySetResult(true);
+        }
+        _watchers.Clear();
+    }
+
+    /// <summary>
+    /// Flips a card and returns the board state, with error handling.
+    /// This is a convenience method specifically for the Commands module to keep it as simple glue code.
+    /// </summary>
+    /// <param name="playerId">The ID of the player making the flip</param>
+    /// <param name="position">The position of the card to flip</param>
+    /// <returns>The board state after the flip from the player's perspective</returns>
+    /// <exception cref="InvalidOperationException">If the flip operation fails</exception>
+    /// <exception cref="InvalidPositionException">If position is outside board bounds</exception>
+    public async Task<BoardState> FlipAndViewAsync(string playerId, Position position)
+    {
+        var outcome = await FlipAsync(playerId, position);
+        if (outcome == FlipOutcome.FailNoCard || outcome == FlipOutcome.FailControlled)
+            throw new InvalidOperationException($"Flip failed: {outcome}");
+        return ViewBy(playerId);
     }
 
     /// <summary>
@@ -637,39 +812,41 @@ public sealed class Board
     /// <returns>A BoardState showing what this player can see</returns>
     public BoardState ViewBy(string playerId)
     {
-        var spots = new List<string>();
-
-        for (int r = 0; r < _rows; r++)
+        // === Must lock when reading shared state to prevent race conditions ===
+        lock (_lock)
         {
-            for (int c = 0; c < _cols; c++)
-            {
-                var slot = _grid[r, c];
+            var spots = new List<string>();
 
-                if (slot.IsEmpty)
+            for (int r = 0; r < _rows; r++)
+            {
+                for (int c = 0; c < _cols; c++)
                 {
-                    // No card at this position
-                    spots.Add("none");
-                }
-                else if (!slot.FaceUp)
-                {
-                    // Card is face down
-                    spots.Add("down");
-                }
-                else if (slot.ControlledBy == playerId)
-                {
-                    // Face-up card controlled by this player
-                    spots.Add($"my {slot.Symbol}");
-                }
-                else
-                {
-                    // Face-up card not controlled by this player (or controlled by no one)
-                    spots.Add($"up {slot.Symbol}");
+                    var slot = _grid[r, c];
+
+                    if (slot.IsEmpty)
+                    {
+                        spots.Add("none");
+                    }
+                    else if (!slot.FaceUp)
+                    {
+                        spots.Add("down");
+                    }
+                    else if (slot.ControlledBy == playerId)
+                    {
+                        // Face-up card controlled by this player
+                        spots.Add($"my {slot.Symbol}");
+                    }
+                    else
+                    {
+                        // Face-up card not controlled by this player (or controlled by no one)
+                        spots.Add($"up {slot.Symbol}");
+                    }
                 }
             }
-        }
 
-        checkRep();
-        return new BoardState(_rows, _cols, spots);
+            checkRep();
+            return new BoardState(_rows, _cols, spots);
+        }
     }
 
     /// <summary>

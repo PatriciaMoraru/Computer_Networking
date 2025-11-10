@@ -14,11 +14,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "c:\\Visual Studio Code Projects\\Computer Networking\\Laboratory Work 3\\MemoryScramble\\src\\MemoryScramble.Core\\MemoryScramble.Core.csproj",
+      "projectUniqueName": "C:\\Visual Studio Code Projects\\Computer Networking\\Laboratory Work 3\\MemoryScramble\\src\\MemoryScramble.Core\\MemoryScramble.Core.csproj",
       "projectName": "MemoryScramble.Core",
-      "projectPath": "c:\\Visual Studio Code Projects\\Computer Networking\\Laboratory Work 3\\MemoryScramble\\src\\MemoryScramble.Core\\MemoryScramble.Core.csproj",
+      "projectPath": "C:\\Visual Studio Code Projects\\Computer Networking\\Laboratory Work 3\\MemoryScramble\\src\\MemoryScramble.Core\\MemoryScramble.Core.csproj",
       "packagesPath": "C:\\Users\\Felicia\\.nuget\\packages\\",
-      "outputPath": "c:\\Visual Studio Code Projects\\Computer Networking\\Laboratory Work 3\\MemoryScramble\\src\\MemoryScramble.Core\\obj\\",
+      "outputPath": "C:\\Visual Studio Code Projects\\Computer Networking\\Laboratory Work 3\\MemoryScramble\\src\\MemoryScramble.Core\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
