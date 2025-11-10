@@ -1,5 +1,6 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
+# 
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MemoryScramble.Server", "src\MemoryScramble.Server\MemoryScramble.Server.csproj", "{043FE7F4-B5A7-4478-9943-B903CD49AA6E}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{4C76D567-072B-4CE9-A942-63F5A3ABB9DA}"
@@ -10,6 +11,10 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MemoryScramble.Core", "src\MemoryScramble.Core\MemoryScramble.Core.csproj", "{87C968BD-16D8-4C26-A842-C563F5EB9BD3}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MemoryScramble.Core.Tests", "tests\MemoryScramble.Core.Tests\MemoryScramble.Core.Tests.csproj", "{58645A16-0234-4387-A6F7-2C0572D61423}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{569A88CA-AC08-4B62-A85E-ED17A1E7F7DB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MemoryScramble.Simulation", "src\MemoryScramble.Simulation\MemoryScramble.Simulation.csproj", "{5BEFD2C9-B938-454D-8D9A-9E64D487293D}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -29,5 +34,12 @@ Global
 		{58645A16-0234-4387-A6F7-2C0572D61423}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{58645A16-0234-4387-A6F7-2C0572D61423}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{58645A16-0234-4387-A6F7-2C0572D61423}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5BEFD2C9-B938-454D-8D9A-9E64D487293D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5BEFD2C9-B938-454D-8D9A-9E64D487293D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5BEFD2C9-B938-454D-8D9A-9E64D487293D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5BEFD2C9-B938-454D-8D9A-9E64D487293D}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{5BEFD2C9-B938-454D-8D9A-9E64D487293D} = {569A88CA-AC08-4B62-A85E-ED17A1E7F7DB}
 	EndGlobalSection
 EndGlobal
