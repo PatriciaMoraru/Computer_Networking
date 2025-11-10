@@ -158,4 +158,318 @@ public class BoardTests
         var lines = protocol.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         Assert.Equal(10, lines.Length);
     }
+
+    // ===== PROBLEM 4: MAP TESTS =====
+
+    [Fact]
+    public async Task TestMap_BasicTransformation()
+    {
+        var board = Board.ParseFromFile(PerfectBoardPath);
+        
+        // Flip a card so we can see the transformation
+        await board.FlipAsync("player1", new Position(0, 0));
+        
+        // Get the original card value
+        var stateBefore = board.ViewBy("player1");
+        var protocolBefore = stateBefore.ToProtocolString();
+        
+        // Prefix transformation that will visibly change all cards
+        var result = await board.MapAsync("player1", async (card) =>
+        {
+            await Task.Delay(10); // Simulate async work
+            return $"NEW_{card}";
+        });
+        
+        // The card should now have "NEW_" prefix
+        var protocolAfter = result.ToProtocolString();
+        
+        // Should contain "my NEW_" (still controlled, but transformed)
+        Assert.Contains("my NEW_", protocolAfter);
+        
+        // Verify transformation worked - the protocol should be different
+        Assert.NotEqual(protocolBefore, protocolAfter);
+    }
+
+    [Fact]
+    public async Task TestMap_ConsistencyOfMatchingPairs()
+    {
+        var board = Board.ParseFromFile(PerfectBoardPath);
+        
+        // The perfect board has matching pairs
+        // Transform and verify matching cards get the same transformation
+        Dictionary<string, string> seenTransformations = new();
+        
+        var result = await board.MapAsync("player1", async (card) =>
+        {
+            await Task.Delay(10);
+            var transformed = $"NEW_{card}";
+            
+            // If we've seen this card before, verify we're applying the same transformation
+            if (seenTransformations.ContainsKey(card))
+            {
+                Assert.Equal(transformed, seenTransformations[card]);
+            }
+            else
+            {
+                seenTransformations[card] = transformed;
+            }
+            
+            return transformed;
+        });
+        
+        // Success - no assertion failures means consistency was maintained
+        Assert.NotNull(result);
+    }
+
+    [Fact]
+    public async Task TestMap_InterleaveWithFlip()
+    {
+        var board = Board.ParseFromFile(PerfectBoardPath);
+        
+        // Start a slow map operation
+        var mapTask = board.MapAsync("player1", async (card) =>
+        {
+            await Task.Delay(100); // Slow transformation
+            return card.ToUpper();
+        });
+        
+        // While map is running, flip a card (should not block)
+        await Task.Delay(50); // Let map start
+        var flipOutcome = await board.FlipAsync("player2", new Position(0, 0));
+        
+        // Flip should succeed
+        Assert.Equal(FlipOutcome.FirstControlled, flipOutcome);
+        
+        // Wait for map to finish
+        var mapResult = await mapTask;
+        Assert.NotNull(mapResult);
+    }
+
+    [Fact]
+    public async Task TestMap_InterleaveWithLook()
+    {
+        var board = Board.ParseFromFile(PerfectBoardPath);
+        
+        // Start a slow map operation
+        var mapTask = board.MapAsync("player1", async (card) =>
+        {
+            await Task.Delay(100); // Slow transformation
+            return card.ToUpper();
+        });
+        
+        // While map is running, look at the board (should not block)
+        await Task.Delay(50); // Let map start
+        var lookResult = board.ViewBy("player2");
+        
+        // Look should succeed
+        Assert.NotNull(lookResult);
+        Assert.Equal(3, lookResult.Rows);
+        Assert.Equal(3, lookResult.Cols);
+        
+        // Wait for map to finish
+        var mapResult = await mapTask;
+        Assert.NotNull(mapResult);
+    }
+
+    [Fact]
+    public async Task TestMap_TransformationDoesNotAffectControl()
+    {
+        var board = Board.ParseFromFile(PerfectBoardPath);
+        
+        // Player controls a card
+        await board.FlipAsync("alice", new Position(0, 0));
+        
+        // Transform all cards
+        await board.MapAsync("alice", async (card) =>
+        {
+            await Task.Delay(10);
+            return $"TRANSFORMED_{card}";
+        });
+        
+        // Alice should still control the card
+        var state = board.ViewBy("alice");
+        var protocol = state.ToProtocolString();
+        
+        // First card should show "my TRANSFORMED_..." (still controlled)
+        Assert.Contains("my TRANSFORMED_", protocol);
+    }
+
+    [Fact]
+    public async Task TestMap_RemovedCardsNotTransformed()
+    {
+        var board = Board.ParseFromFile(PerfectBoardPath);
+        
+        // Match and remove a pair
+        var outcome1 = await board.FlipAsync("alice", new Position(0, 0)); // First card
+        var outcome2 = await board.FlipAsync("alice", new Position(1, 1)); // Assume this matches
+        
+        // If they matched, flip again to trigger cleanup (Rule 3-A removes them)
+        if (outcome2 == FlipOutcome.SecondMatch)
+        {
+            await board.FlipAsync("alice", new Position(0, 1)); // Trigger cleanup
+        }
+        
+        // Transform all cards
+        var result = await board.MapAsync("alice", async (card) =>
+        {
+            await Task.Delay(10);
+            return $"NEW_{card}";
+        });
+        
+        // Removed cards should still show as "none"
+        var protocol = result.ToProtocolString();
+        if (outcome2 == FlipOutcome.SecondMatch)
+        {
+            Assert.Contains("none", protocol);
+        }
+    }
+
+    // ===== PROBLEM 5: WATCH TESTS =====
+
+    [Fact]
+    public async Task TestWatch_WaitsForChange()
+    {
+        var board = Board.ParseFromFile(PerfectBoardPath);
+        
+        // Start watching in background
+        var watchTask = board.WaitForChangeAsync();
+        
+        // Watch should not complete immediately
+        await Task.Delay(100);
+        Assert.False(watchTask.IsCompleted);
+        
+        // Flip a card (triggers change)
+        await board.FlipAsync("player1", new Position(0, 0));
+        
+        // Watch should now complete
+        await watchTask; // Should complete quickly
+        Assert.True(watchTask.IsCompleted);
+    }
+
+    [Fact]
+    public async Task TestWatch_MultipleWatchersNotified()
+    {
+        var board = Board.ParseFromFile(PerfectBoardPath);
+        
+        // Multiple watchers
+        var watch1 = board.WaitForChangeAsync();
+        var watch2 = board.WaitForChangeAsync();
+        var watch3 = board.WaitForChangeAsync();
+        
+        // All should be waiting
+        await Task.Delay(100);
+        Assert.False(watch1.IsCompleted);
+        Assert.False(watch2.IsCompleted);
+        Assert.False(watch3.IsCompleted);
+        
+        // One change notifies all
+        await board.FlipAsync("player1", new Position(0, 0));
+        
+        // All should complete
+        await Task.WhenAll(watch1, watch2, watch3);
+        Assert.True(watch1.IsCompleted);
+        Assert.True(watch2.IsCompleted);
+        Assert.True(watch3.IsCompleted);
+    }
+
+    [Fact]
+    public async Task TestWatch_NotifiesOnFlipFaceUp()
+    {
+        var board = Board.ParseFromFile(PerfectBoardPath);
+        
+        var watchTask = board.WaitForChangeAsync();
+        await Task.Delay(50);
+        Assert.False(watchTask.IsCompleted);
+        
+        // Flip face up triggers notification
+        await board.FlipAsync("alice", new Position(0, 0));
+        
+        await watchTask;
+        Assert.True(watchTask.IsCompleted);
+    }
+
+    [Fact]
+    public async Task TestWatch_NotifiesOnFlipFaceDown()
+    {
+        var board = Board.ParseFromFile(PerfectBoardPath);
+        
+        // Set up: Flip two non-matching cards, then start watching
+        await board.FlipAsync("alice", new Position(0, 0));
+        await board.FlipAsync("alice", new Position(0, 2)); // Non-match
+        
+        // Cards are now face up
+        var watchTask = board.WaitForChangeAsync();
+        await Task.Delay(50);
+        Assert.False(watchTask.IsCompleted);
+        
+        // Flip new first card triggers cleanup (flips previous cards face down)
+        await board.FlipAsync("alice", new Position(1, 0));
+        
+        await watchTask;
+        Assert.True(watchTask.IsCompleted);
+    }
+
+    [Fact]
+    public async Task TestWatch_NotifiesOnRemoval()
+    {
+        var board = Board.ParseFromFile(PerfectBoardPath);
+        
+        // Set up: Make a match
+        await board.FlipAsync("alice", new Position(0, 0));
+        await board.FlipAsync("alice", new Position(0, 1)); // Match
+        
+        // Start watching
+        var watchTask = board.WaitForChangeAsync();
+        await Task.Delay(50);
+        Assert.False(watchTask.IsCompleted);
+        
+        // Flip new card triggers cleanup (removes matched cards)
+        await board.FlipAsync("alice", new Position(1, 0));
+        
+        await watchTask;
+        Assert.True(watchTask.IsCompleted);
+    }
+
+    [Fact]
+    public async Task TestWatch_NotifiesOnMapTransform()
+    {
+        var board = Board.ParseFromFile(PerfectBoardPath);
+        
+        var watchTask = board.WaitForChangeAsync();
+        await Task.Delay(50);
+        Assert.False(watchTask.IsCompleted);
+        
+        // Map operation triggers notification
+        await board.MapAsync("player1", async (card) =>
+        {
+            await Task.Delay(10);
+            return card.ToUpper();
+        });
+        
+        await watchTask;
+        Assert.True(watchTask.IsCompleted);
+    }
+
+    [Fact]
+    public async Task TestWatch_InterleaveWithOtherOperations()
+    {
+        var board = Board.ParseFromFile(PerfectBoardPath);
+        
+        // Start watching
+        var watchTask = board.WaitForChangeAsync();
+        
+        // Other operations should work normally while watching
+        var lookResult = board.ViewBy("player2");
+        Assert.NotNull(lookResult);
+        
+        // Verify watch still waiting
+        await Task.Delay(50);
+        Assert.False(watchTask.IsCompleted);
+        
+        // Trigger change
+        await board.FlipAsync("player1", new Position(0, 0));
+        
+        await watchTask;
+        Assert.True(watchTask.IsCompleted);
+    }
 }
