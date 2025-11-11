@@ -13,11 +13,10 @@ if (args.Length < 2)
 int port = int.Parse(args[0]);
 string boardFile = args[1];
 
-// Resolve the board file path relative to the project root
 string projectRoot = Path.Combine(Directory.GetCurrentDirectory(), "..", "..");
 string fullBoardPath = Path.GetFullPath(Path.Combine(projectRoot, boardFile));
 
-// Load the board
+
 Console.WriteLine($"Loading board from: {fullBoardPath}");
 Board board;
 board = Board.ParseFromFile(fullBoardPath);
@@ -26,7 +25,7 @@ Console.WriteLine($"Board loaded successfully!");
 // Build the web application
 var builder = WebApplication.CreateBuilder();
 
-// Add CORS to allow browser clients
+// Add CORS 
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
@@ -39,7 +38,6 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// Enable CORS
 app.UseCors();
 
 // Serve static files from public/ folder
@@ -51,7 +49,7 @@ app.UseStaticFiles(new StaticFileOptions
     RequestPath = ""
 });
 
-// === Memory Scramble HTTP Endpoints ===
+// Memory Scramble HTTP Endpoints
 
 // GET /look/{playerId}
 // Returns the board state from the player's perspective

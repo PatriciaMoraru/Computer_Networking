@@ -148,6 +148,28 @@ class Program
     /// This is the core of the fuzz testing - each player operates independently
     /// with varying speeds to create race conditions.
     /// </summary>
+    /// <param name="playerId">string, unique identifier for this simulated player</param>
+    /// <param name="serverUrl">string, base URL of the Memory Scramble server (e.g., "http://localhost:8080")</param>
+    /// <param name="board">BoardInfo, board dimensions (rows and cols)</param>
+    /// <returns>Task, async task that completes when player finishes all moves</returns>
+    /// <remarks>
+    /// Preconditions (requires):
+    ///   • playerId is non-null and unique
+    ///   • serverUrl is a valid HTTP URL with running server
+    ///   • board contains valid dimensions (Rows > 0, Cols > 0)
+    /// Postconditions (effects):
+    ///   • Makes MOVES_PER_PLAYER random flip requests to server
+    ///   • Each move has random delay between MIN_DELAY_MS and MAX_DELAY_MS
+    ///   • Tracks successes, failures (expected), and errors (unexpected)
+    ///   • Updates global statistics (totalSuccesses, totalFailures, totalErrors)
+    ///   • Adds player statistics to playerStatsList
+    ///   • Logs progress and errors to console
+    /// Fuzz Testing Strategy:
+    ///   • Random delays create varying race conditions (some players faster than others)
+    ///   • Random positions ensure diverse board access patterns
+    ///   • Seeded random (by playerId hash) for reproducible results
+    ///   • Expected failures (Conflict status) are normal - counted but not errors
+    /// </remarks>
     static async Task SimulatePlayer(string playerId, string serverUrl, BoardInfo board)
     {
         var random = new Random(playerId.GetHashCode()); // Seeded for reproducibility
@@ -225,6 +247,20 @@ class Program
     /// <summary>
     /// Gets the board dimensions from the server.
     /// </summary>
+    /// <param name="serverUrl">string, base URL of the Memory Scramble server</param>
+    /// <returns>Task&lt;BoardInfo&gt;, async task resolving to board dimensions</returns>
+    /// <remarks>
+    /// Preconditions (requires):
+    ///   • serverUrl is a valid HTTP URL with running server
+    ///   • Server responds to /look/{playerId} endpoint
+    /// Postconditions (effects):
+    ///   • Sends GET request to /look/probe
+    ///   • Parses first line of response (format: "ROWSxCOLS")
+    ///   • Returns BoardInfo with parsed dimensions
+    /// Throws:
+    ///   • Exception if server response is empty or malformed
+    ///   • HttpRequestException if server is unreachable
+    /// </remarks>
     static async Task<BoardInfo> GetBoardInfo(string serverUrl)
     {
         var response = await httpClient.GetAsync($"{serverUrl}/look/probe");
@@ -247,22 +283,38 @@ class Program
     /// <summary>
     /// Simple struct to hold board dimensions.
     /// </summary>
+    /// <remarks>
+    /// Immutable record containing board dimensions retrieved from server.
+    /// Used to determine valid random positions for fuzz testing.
+    /// </remarks>
     record BoardInfo
     {
+        /// <summary>int, number of rows on the board (must be > 0)</summary>
         public int Rows { get; init; }
+        /// <summary>int, number of columns on the board (must be > 0)</summary>
         public int Cols { get; init; }
     }
 
     /// <summary>
     /// Statistics for a single player's performance.
     /// </summary>
+    /// <remarks>
+    /// Immutable record tracking a single player's fuzz test results.
+    /// Used to generate per-player summary statistics at end of simulation.
+    /// </remarks>
     record PlayerStats
     {
+        /// <summary>string, player identifier (e.g., "sim_player_0")</summary>
         public required string PlayerId { get; init; }
+        /// <summary>int, total number of moves attempted by this player</summary>
         public required int TotalMoves { get; init; }
+        /// <summary>long, total duration in milliseconds for all moves</summary>
         public required long Duration { get; init; }
+        /// <summary>int, number of successful flips (HTTP 200)</summary>
         public required int Successes { get; init; }
+        /// <summary>int, number of expected failures (HTTP 409 Conflict - no card or controlled)</summary>
         public required int Failures { get; init; }
+        /// <summary>int, number of unexpected errors (crashes, exceptions, other status codes)</summary>
         public required int Errors { get; init; }
     }
 }

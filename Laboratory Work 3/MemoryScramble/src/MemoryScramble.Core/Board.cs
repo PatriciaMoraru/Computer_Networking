@@ -65,7 +65,7 @@ public class InvalidBoardFileException : Exception
 #region BoardState
 
 /// <summary>
-/// Immutable snapshot of the visible board from one player’s perspective.
+/// Immutable snapshot of the visible board from one player's perspective.
 /// </summary>
 /// <remarks>
 /// AF(this) = textual state of all positions for a given player:
@@ -80,6 +80,20 @@ public sealed class BoardState
     public int Cols { get; }
     public IReadOnlyList<string> Spots { get; }
 
+    /// <summary>
+    /// Creates a new BoardState with the specified dimensions and spot descriptions.
+    /// </summary>
+    /// <param name="rows">int, number of rows</param>
+    /// <param name="cols">int, number of columns</param>
+    /// <param name="spots">IReadOnlyList&lt;string&gt;, list of spot descriptions (length must equal rows * cols)</param>
+    /// <remarks>
+    /// Preconditions (requires):
+    ///   • rows > 0 and cols > 0
+    ///   • spots.Count == rows * cols
+    ///   • each spot string matches protocol: "none", "down", "up [symbol]", or "my [symbol]"
+    /// Postconditions (effects):
+    ///   • Creates an immutable BoardState snapshot
+    /// </remarks>
     public BoardState(int rows, int cols, IReadOnlyList<string> spots)
     {
         Rows = rows;
@@ -87,6 +101,21 @@ public sealed class BoardState
         Spots = spots;
     }
 
+    /// <summary>
+    /// Converts this BoardState to the protocol string format.
+    /// </summary>
+    /// <returns>string, protocol-formatted board state</returns>
+    /// <remarks>
+    /// Preconditions (requires): none
+    /// Postconditions (effects):
+    ///   • Returns a string in the format:
+    ///     ROWSxCOLS\n
+    ///     spot1\n
+    ///     spot2\n
+    ///     ...
+    ///     spotN\n
+    ///   where N = Rows * Cols
+    /// </remarks>
     public string ToProtocolString()
     {
         var sb = new StringBuilder();
@@ -140,7 +169,7 @@ public sealed class Board
         public string? ControlledBy;
         public bool IsEmpty => Symbol is null;
         
-        // === PROBLEM 3: Added for concurrent player support ===
+        // PROBLEM 3: Added for concurrent player support
         // Queue of players waiting to control this card
         public Queue<TaskCompletionSource<bool>> WaitingQueue { get; } = new();
     }
@@ -157,13 +186,13 @@ public sealed class Board
     private readonly CardSlot[,] _grid;
     private readonly Dictionary<string, PlayerState> _players = new(StringComparer.Ordinal);
     
-    // === PROBLEM 3: Added lock for thread-safe concurrent access ===
+    // PROBLEM 3: Added lock for thread-safe concurrent access 
     private readonly object _lock = new();
     
     // Serialize flips per-player to prevent overlapping first/second flip races
     private readonly Dictionary<string, SemaphoreSlim> _playerLocks = new(StringComparer.Ordinal);
     
-    // === PROBLEM 5: Watch functionality (versioned) ===
+    // PROBLEM 5: Watch functionality (versioned) 
     // Monotonic version that increments on any visible change
     private long _version = 0;
     // List of watchers waiting for the next version; each is completed with the new version
@@ -209,9 +238,21 @@ public sealed class Board
     /// <summary>
     /// Creates a Board with the specified dimensions and card symbols.
     /// </summary>
-    /// <param name="rows">Number of rows</param>
-    /// <param name="cols">Number of columns</param>
-    /// <param name="symbols">List of card symbols, reading left-to-right, top-to-bottom</param>
+    /// <param name="rows">int, number of rows in the board</param>
+    /// <param name="cols">int, number of columns in the board</param>
+    /// <param name="symbols">IReadOnlyList&lt;string&gt;, list of card symbols, reading left-to-right, top-to-bottom</param>
+    /// <remarks>
+    /// Preconditions (requires):
+    ///   • rows > 0 and cols > 0
+    ///   • symbols.Count == rows * cols
+    ///   • each symbol in symbols is a non-null string
+    /// Postconditions (effects):
+    ///   • Creates a new Board with dimensions rows × cols
+    ///   • All cards are face down and uncontrolled
+    ///   • Card at position (r, c) has symbol symbols[r * cols + c]
+    /// Throws:
+    ///   • ArgumentException if preconditions are violated
+    /// </remarks>
     private Board(int rows, int cols, IReadOnlyList<string> symbols)
     {
         if (rows <= 0 || cols <= 0)
@@ -245,9 +286,20 @@ public sealed class Board
     /// <summary>
     /// Parses a board file and creates a new Board.
     /// </summary>
-    /// <param name="filename">Path to the board file</param>
-    /// <returns>A new Board with cards from the file</returns>
-    /// <exception cref="InvalidBoardFileException">If the file format is invalid</exception>
+    /// <param name="filename">string, path to the board file</param>
+    /// <returns>Board, a new Board with cards from the file</returns>
+    /// <remarks>
+    /// Preconditions (requires):
+    ///   • filename is a valid file path
+    ///   • file exists and is readable
+    ///   • file format: first line "ROWSxCOLS", followed by ROWS*COLS lines of card symbols
+    ///   • each card symbol is non-empty, contains no whitespace
+    /// Postconditions (effects):
+    ///   • Returns a new Board initialized from the file
+    ///   • All cards are face down and uncontrolled
+    /// Throws:
+    ///   • InvalidBoardFileException if file is not found, cannot be read, or has invalid format
+    /// </remarks>
     public static Board ParseFromFile(string filename)
     {
         try
@@ -311,7 +363,7 @@ public sealed class Board
 
     // ========== Public Methods ==========
 
-    /* ===== PROBLEM 2: SYNCHRONOUS VERSION (commented out for Problem 3) =====
+    /* PROBLEM 2: SYNCHRONOUS VERSION (commented out for Problem 3) 
     /// <summary>
     /// Attempt to flip a card at the specified position for the given player.
     /// Follows the Memory Scramble game rules for first/second card flips and cleanup.
@@ -347,18 +399,40 @@ public sealed class Board
             return FlipSecondCard(playerId, player, position, slot);
         }
     }
-    ===== END SYNCHRONOUS VERSION ===== */
+    END SYNCHRONOUS VERSION -------- */
 
-    // ===== PROBLEM 3: ASYNCHRONOUS VERSION WITH WAITING SUPPORT =====
+    //  PROBLEM 3: ASYNCHRONOUS VERSION WITH WAITING SUPPORT 
     /// <summary>
     /// Attempt to flip a card at the specified position for the given player.
     /// Follows the Memory Scramble game rules for first/second card flips and cleanup.
     /// Supports concurrent players with proper waiting when cards are controlled.
     /// </summary>
-    /// <param name="playerId">The ID of the player making the flip</param>
-    /// <param name="position">The position of the card to flip</param>
-    /// <returns>The outcome of the flip attempt</returns>
-    /// <exception cref="InvalidPositionException">If position is outside board bounds</exception>
+    /// <param name="playerId">string, the ID of the player making the flip</param>
+    /// <param name="position">Position, the board position (row, col) of the card to flip</param>
+    /// <returns>Task&lt;FlipOutcome&gt;, async task resolving to the outcome of the flip attempt</returns>
+    /// <remarks>
+    /// Preconditions (requires):
+    ///   • playerId is non-null
+    ///   • position is within board bounds (0 ≤ position.Row &lt; rows, 0 ≤ position.Col &lt; cols)
+    /// Postconditions (effects):
+    ///   First card (player controls 0 or 2 cards):
+    ///     • Rule 3: Handles cleanup from previous turn (removes matched pairs, flips down non-matched)
+    ///     • Rule 1-A: If card is face down and uncontrolled → flips it face up, player controls it
+    ///     • Rule 1-B: If card is face up but uncontrolled → player controls it (no visual change)
+    ///     • Rule 1-C: If card is empty → returns FailNoCard
+    ///     • Rule 1-D: If card is controlled by another player → waits until released, then takes control
+    ///   Second card (player controls 1 card):
+    ///     • Rule 2-A: If position is empty → returns FailNoCard, releases first card
+    ///     • Rule 2-B: If card controlled by any player → returns FailControlled, releases first card
+    ///     • Rule 2-C: If cards match → keeps control of both, returns SecondMatch
+    ///     • Rule 2-D: If cards don't match → releases both (leaves face up), returns SecondNoMatch
+    ///   Concurrency:
+    ///     • Multiple players can flip concurrently (thread-safe with locks)
+    ///     • Same player's flips are serialized (per-player semaphore prevents overlapping flips)
+    ///     • Waiting players are queued and notified when cards become available
+    /// Throws:
+    ///   • InvalidPositionException if position is outside board bounds
+    /// </remarks>
     public async Task<FlipOutcome> FlipAsync(string playerId, Position position)
     {
         // Per-player serialization: prevent overlapping flips from the same player
@@ -375,46 +449,46 @@ public sealed class Board
         await playerSemaphore.WaitAsync().ConfigureAwait(false);
         try
         {
-        // Validate position
-        if (position.Row < 0 || position.Row >= _rows || position.Col < 0 || position.Col >= _cols)
-            throw new InvalidPositionException(position);
+            // Validate position
+            if (position.Row < 0 || position.Row >= _rows || position.Col < 0 || position.Col >= _cols)
+                throw new InvalidPositionException(position);
 
-        PlayerState player;
-        bool isFirstCard;
-        
-        // === ALL player state access must be inside lock to prevent race conditions ===
-        lock (_lock)
-        {
-            // Get or create player state
-            if (!_players.ContainsKey(playerId))
-                _players[playerId] = new PlayerState();
+            PlayerState player;
+            bool isFirstCard;
             
-            player = _players[playerId];
-            
-            // Determine if this is a first or second card flip
-            // First card if: no cards controlled (0) OR matched pair controlled (2)
-            isFirstCard = player.Controlled.Count != 1;
-            
-            // If first card, handle cleanup from previous turn (Rule 3)
-            if (isFirstCard)
-            {
-                HandleCleanup(player);
-            }
-        }
-
-        if (isFirstCard)
-        {
-            // Now flip the first card (Rule 1) - may need to wait
-            return await FlipFirstCardAsync(playerId, player, position);
-        }
-        else
-        {
-            // Flip second card (Rule 2)
+            // ALL player state access must be inside lock to prevent race conditions
             lock (_lock)
             {
-                return FlipSecondCard(playerId, player, position, _grid[position.Row, position.Col]);
+                // Get or create player state
+                if (!_players.ContainsKey(playerId))
+                    _players[playerId] = new PlayerState();
+                
+                player = _players[playerId];
+                
+                // Determine if this is a first or second card flip
+                // First card if: no cards controlled (0) OR matched pair controlled (2)
+                isFirstCard = player.Controlled.Count != 1;
+                
+                // If first card, handle cleanup from previous turn (Rule 3)
+                if (isFirstCard)
+                {
+                    HandleCleanup(player);
+                }
             }
-        }
+
+            if (isFirstCard)
+            {
+                // Now flip the first card (Rule 1) - may need to wait
+                return await FlipFirstCardAsync(playerId, player, position);
+            }
+            else
+            {
+                // Flip second card (Rule 2)
+                lock (_lock)
+                {
+                    return FlipSecondCard(playerId, player, position, _grid[position.Row, position.Col]);
+                }
+            }
         }
         finally
         {
@@ -426,6 +500,23 @@ public sealed class Board
     /// Handles cleanup before a player flips a new first card (Rule 3-A and 3-B).
     /// PROBLEM 3: Now notifies waiting players when cards are released.
     /// </summary>
+    /// <param name="player">PlayerState, the player's current state</param>
+    /// <remarks>
+    /// Preconditions (requires):
+    ///   • player is non-null
+    ///   • must be called inside _lock
+    /// Postconditions (effects):
+    ///   Rule 3-A (MatchHeld):
+    ///     • Removes both matched cards from the board (sets Symbol to null)
+    ///     • Wakes all waiting players for those positions (they will get FailNoCard)
+    ///     • Notifies watchers of board change
+    ///   Rule 3-B (NoMatchShown):
+    ///     • Flips face-down any unmatched cards that are face-up and uncontrolled
+    ///     • Wakes one waiting player per position (FIFO fairness)
+    ///     • Notifies watchers if any cards were flipped
+    ///   • Resets player.Pending to Unfinished
+    ///   • Clears player.Controlled and player.LastShown as appropriate
+    /// </remarks>
     private void HandleCleanup(PlayerState player)
     {
         if (player.Pending == PlayerTurnStatus.MatchHeld)
@@ -475,7 +566,7 @@ public sealed class Board
         checkRep();
     }
 
-    /* ===== PROBLEM 2: SYNCHRONOUS FlipFirstCard (commented out for Problem 3) =====
+    /* PROBLEM 2: SYNCHRONOUS FlipFirstCard (commented out for Problem 3)
     /// <summary>
     /// Handles flipping the first card in a pair (Rule 1).
     /// THIS WAS THE SYNCHRONOUS VERSION - replaced with async version in Problem 3
@@ -510,13 +601,34 @@ public sealed class Board
         checkRep();
         return FlipOutcome.FirstControlled;
     }
-    ===== END SYNCHRONOUS VERSION ===== */
+    END SYNCHRONOUS VERSION ------- */
 
-    // ===== PROBLEM 3: ASYNC FlipFirstCard WITH WAITING SUPPORT =====
+    // PROBLEM 3: ASYNC FlipFirstCard WITH WAITING SUPPORT
     /// <summary>
     /// Handles flipping the first card in a pair (Rule 1).
     /// ASYNC VERSION: Waits if card is controlled by another player.
     /// </summary>
+    /// <param name="playerId">string, ID of the player making the flip</param>
+    /// <param name="player">PlayerState, the player's current state</param>
+    /// <param name="position">Position, the board position to flip</param>
+    /// <returns>Task&lt;FlipOutcome&gt;, async task resolving to the flip outcome</returns>
+    /// <remarks>
+    /// Preconditions (requires):
+    ///   • playerId is non-null
+    ///   • player is non-null and corresponds to playerId
+    ///   • position is within board bounds
+    ///   • player.Controlled.Count == 0 or 2 (first card scenario)
+    /// Postconditions (effects):
+    ///   • Rule 1-C: If position is empty → returns FailNoCard
+    ///   • Rule 1-D: If card controlled by another player → waits until released, then retries
+    ///   • Rule 1-A: If card face down and available → flips it face up, takes control
+    ///   • Rule 1-B: If card face up and available → takes control (no visual change)
+    ///   • On success: player.Controlled contains position, returns FirstControlled
+    ///   • Notifies watchers if card was flipped face up
+    /// Thread-safety:
+    ///   • Waits outside lock (allows other operations)
+    ///   • Uses while(true) loop to re-check after waking from wait
+    /// </remarks>
     private async Task<FlipOutcome> FlipFirstCardAsync(string playerId, PlayerState player, Position position)
     {
         while (true)
@@ -578,6 +690,21 @@ public sealed class Board
     /// <summary>
     /// PROBLEM 3: Notifies waiting players that a card is now available.
     /// </summary>
+    /// <param name="slot">CardSlot, the card slot to notify waiters for</param>
+    /// <param name="notifyAll">bool, if true wakes all waiters; if false wakes only one (FIFO)</param>
+    /// <remarks>
+    /// Preconditions (requires):
+    ///   • slot is non-null
+    ///   • must be called inside _lock
+    /// Postconditions (effects):
+    ///   If notifyAll == false:
+    ///     • Wakes one waiting player (FIFO fairness)
+    ///     • Used when card becomes available normally (e.g., after non-match)
+    ///   If notifyAll == true:
+    ///     • Wakes ALL waiting players
+    ///     • Used when card is removed (Rule 3-A) - all waiters should get FailNoCard
+    ///   • Dequeued tasks have TrySetResult(true) called
+    /// </remarks>
     private void NotifyWaitingPlayers(CardSlot slot, bool notifyAll = false)
     {
         // Notify waiting player(s)
@@ -602,6 +729,26 @@ public sealed class Board
     /// <summary>
     /// Handles flipping the second card in a pair (Rule 2).
     /// </summary>
+    /// <param name="playerId">string, ID of the player making the flip</param>
+    /// <param name="player">PlayerState, the player's current state</param>
+    /// <param name="position">Position, the board position to flip</param>
+    /// <param name="slot">CardSlot, the card slot at the position</param>
+    /// <returns>FlipOutcome, the result of the second card flip</returns>
+    /// <remarks>
+    /// Preconditions (requires):
+    ///   • playerId, player, slot are non-null
+    ///   • position is within board bounds
+    ///   • player.Controlled.Count == 1 (second card scenario)
+    ///   • must be called inside _lock
+    /// Postconditions (effects):
+    ///   • Rule 2-A: If position is empty → relinquishes first card, returns FailNoCard
+    ///   • Rule 2-B: If card controlled → relinquishes first card, returns FailControlled
+    ///   • Rule 2-C: Flips card face up if needed
+    ///   • Rule 2-D (match): Both cards remain controlled, returns SecondMatch
+    ///   • Rule 2-E (no match): Releases both cards (leaves face up), returns SecondNoMatch
+    ///   • Notifies watchers if card was flipped face up
+    ///   • Notifies waiting players when cards are released (Rule 2-E)
+    /// </remarks>
     private FlipOutcome FlipSecondCard(string playerId, PlayerState player, Position position, CardSlot slot)
     {
         // Rule 2-A: No card at this position
@@ -676,6 +823,21 @@ public sealed class Board
     /// Helper to relinquish control of all cards (but leave them face up).
     /// PROBLEM 3: Now notifies waiting players when cards are released.
     /// </summary>
+    /// <param name="player">PlayerState, the player whose control is being relinquished</param>
+    /// <remarks>
+    /// Preconditions (requires):
+    ///   • player is non-null
+    ///   • must be called inside _lock
+    /// Postconditions (effects):
+    ///   • Clears ControlledBy on all cards the player controls
+    ///   • Moves controlled positions to player.LastShown
+    ///   • Sets player.Pending to NoMatchShown
+    ///   • Clears player.Controlled
+    ///   • Notifies one waiting player per released card (FIFO fairness)
+    ///   • Cards remain face up (not flipped down)
+    /// Usage:
+    ///   • Called when second flip fails (Rule 2-A, 2-B)
+    /// </remarks>
     private void RelinquishControl(PlayerState player)
     {
         // First, collect positions and clear ControlledBy on slots
@@ -706,12 +868,29 @@ public sealed class Board
     /// pairwise consistent: if two cards match before map(), they will always be observed 
     /// as matching during and after map().
     /// </summary>
-    /// <param name="playerId">ID of player applying the map</param>
-    /// <param name="transformer">Pure function from cards to cards (async)</param>
-    /// <returns>The state of the board after replacement from playerId's perspective</returns>
+    /// <param name="playerId">string, ID of player applying the map operation</param>
+    /// <param name="transformer">Func&lt;string, Task&lt;string&gt;&gt;, pure async function mapping card symbols to new symbols</param>
+    /// <returns>Task&lt;BoardState&gt;, async task resolving to the board state after transformation from playerId's perspective</returns>
+    /// <remarks>
+    /// Preconditions (requires):
+    ///   • playerId is non-null
+    ///   • transformer is a pure mathematical function (same input → same output)
+    ///   • transformer does not throw exceptions
+    /// Postconditions (effects):
+    ///   • Every card symbol s on the board is replaced with transformer(s)
+    ///   • Card state (face up/down, controlled/uncontrolled, empty) is unchanged
+    ///   • If two cards had the same symbol before, they have the same symbol after
+    ///   • Other operations (flip, look, watch, even other maps) can interleave during transformation
+    ///   • Returns the updated board state from playerId's perspective
+    ///   • Notifies watchers if any symbols changed
+    /// Thread-safety:
+    ///   • Transformer calls execute outside lock (allows interleaving)
+    ///   • Symbol replacements applied atomically (inside lock)
+    ///   • Pairwise consistency maintained: matching cards always observed as matching
+    /// </remarks>
     public async Task<BoardState> MapAsync(string playerId, Func<string, Task<string>> transformer)
     {
-        // STEP 1: Collect all unique symbols on the board (quick operation with lock)
+        // So first 1: Collect all unique symbols on the board (quick operation with lock)
         HashSet<string> uniqueSymbols;
         lock (_lock)
         {
@@ -730,7 +909,7 @@ public sealed class Board
         }
         // Lock released! Other operations can now interleave.
 
-        // STEP 2: Transform each unique symbol (slow operation WITHOUT lock)
+        // Then 2: Transform each unique symbol (slow operation WITHOUT lock)
         var transformations = new Dictionary<string, string>();
         foreach (var symbol in uniqueSymbols)
         {
@@ -739,7 +918,7 @@ public sealed class Board
         }
         // Other operations (flip, look, even other map) could have interleaved during awaits!
 
-        // STEP 3: Apply all transformations atomically (quick operation with lock)
+        // Then 3: Apply all transformations atomically (quick operation with lock)
         lock (_lock)
         {
             bool anyChanged = false;
@@ -754,9 +933,6 @@ public sealed class Board
                         slot.Symbol = transformations[slot.Symbol!];
                         anyChanged = true;
                     }
-                    // Note: Cards that were added/removed during Step 2 are handled gracefully:
-                    // - Removed cards: !slot.IsEmpty check skips them
-                    // - Added cards: Not in transformations map, so skipped
                 }
             }
             
@@ -769,18 +945,36 @@ public sealed class Board
             checkRep();
         }
 
-        // STEP 4: Return the updated board state from this player's perspective
+        // Finally 4: Return the updated board state from this player's perspective
         return ViewBy(playerId);
     }
 
-    // ===== PROBLEM 5: WATCH FUNCTIONALITY =====
+    // PROBLEM 5: WATCH FUNCTIONALITY 
     
     /// <summary>
     /// Waits asynchronously until the board changes.
     /// A change is defined as: cards flip up/down, removed, or symbols change.
     /// Control changes (take/release without flipping) do NOT trigger this.
     /// </summary>
-    /// <returns>A task that completes when the board changes</returns>
+    /// <param name="playerId">string, ID of the player watching for changes</param>
+    /// <returns>Task, async task that completes when the board changes (or immediately if already changed since last watch)</returns>
+    /// <remarks>
+    /// Preconditions (requires):
+    ///   • playerId is non-null
+    /// Postconditions (effects):
+    ///   • If board version has changed since player's last watch → returns immediately
+    ///   • Otherwise → waits until next visible board change (flip up/down, removal, map)
+    ///   • Updates player's last-seen version to current version
+    ///   • Does NOT consider control changes (take/release) as visible changes
+    /// Versioned Watch Mechanism:
+    ///   • Board maintains monotonic version counter (_version)
+    ///   • Each player tracks their last-delivered version (_playerLastVersion)
+    ///   • Prevents "gap" bug: changes between watch requests are never missed
+    ///   • Multiple watchers all notified simultaneously on any change
+    /// Thread-safety:
+    ///   • Waits outside lock to allow other operations to proceed
+    ///   • Version checks and updates are atomic (inside lock)
+    /// </remarks>
     public async Task WaitForChangeAsync(string playerId)
     {
         TaskCompletionSource<long> watcher;
@@ -816,6 +1010,17 @@ public sealed class Board
     /// Notifies all waiting watchers that the board has changed.
     /// Must be called inside a lock(_lock) block.
     /// </summary>
+    /// <remarks>
+    /// Preconditions (requires):
+    ///   • must be called inside _lock
+    /// Postconditions (effects):
+    ///   • Increments board version (_version++)
+    ///   • Notifies all waiting watchers by calling TrySetResult(newVersion)
+    ///   • Clears the _watchers list
+    /// Usage:
+    ///   • Called on any visible board change (card flip, removal, transformation)
+    ///   • NOT called on control changes without flipping
+    /// </remarks>
     private void NotifyWatchers()
     {
         // Bump board version on any visible change
@@ -833,11 +1038,21 @@ public sealed class Board
     /// Flips a card and returns the board state, with error handling.
     /// This is a convenience method specifically for the Commands module to keep it as simple glue code.
     /// </summary>
-    /// <param name="playerId">The ID of the player making the flip</param>
-    /// <param name="position">The position of the card to flip</param>
-    /// <returns>The board state after the flip from the player's perspective</returns>
-    /// <exception cref="InvalidOperationException">If the flip operation fails</exception>
-    /// <exception cref="InvalidPositionException">If position is outside board bounds</exception>
+    /// <param name="playerId">string, the ID of the player making the flip</param>
+    /// <param name="position">Position, the board position (row, col) of the card to flip</param>
+    /// <returns>Task&lt;BoardState&gt;, async task resolving to the board state after the flip from the player's perspective</returns>
+    /// <remarks>
+    /// Preconditions (requires):
+    ///   • playerId is non-null
+    ///   • position is within board bounds
+    /// Postconditions (effects):
+    ///   • Attempts to flip card at position using FlipAsync
+    ///   • If flip succeeds (FirstControlled, SecondMatch, SecondNoMatch) → returns board state
+    ///   • If flip fails (FailNoCard, FailControlled) → throws InvalidOperationException
+    /// Throws:
+    ///   • InvalidOperationException if flip fails (FailNoCard or FailControlled)
+    ///   • InvalidPositionException if position is outside board bounds
+    /// </remarks>
     public async Task<BoardState> FlipAndViewAsync(string playerId, Position position)
     {
         var outcome = await FlipAsync(playerId, position);
@@ -849,11 +1064,27 @@ public sealed class Board
     /// <summary>
     /// Returns the current state of the board from a specific player's perspective.
     /// </summary>
-    /// <param name="playerId">The ID of the player viewing the board</param>
-    /// <returns>A BoardState showing what this player can see</returns>
+    /// <param name="playerId">string, the ID of the player viewing the board</param>
+    /// <returns>BoardState, immutable snapshot showing what this player can see</returns>
+    /// <remarks>
+    /// Preconditions (requires):
+    ///   • playerId is non-null
+    /// Postconditions (effects):
+    ///   • Returns an immutable BoardState with:
+    ///     - Dimensions (rows × cols)
+    ///     - Array of spot descriptions, one per position (left-to-right, top-to-bottom):
+    ///       • "none" if card removed
+    ///       • "down" if card face down
+    ///       • "my [symbol]" if card face up and controlled by this player
+    ///       • "up [symbol]" if card face up but not controlled by this player
+    ///   • Does not modify board state
+    /// Thread-safety:
+    ///   • Thread-safe (acquires lock during read)
+    ///   • Returns immutable snapshot (safe from rep exposure)
+    /// </remarks>
     public BoardState ViewBy(string playerId)
     {
-        // === Must lock when reading shared state to prevent race conditions ===
+        // Must lock when reading shared state to prevent race conditions
         lock (_lock)
         {
             var spots = new List<string>();
