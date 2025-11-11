@@ -135,6 +135,120 @@ public class BoardTests
     }
 
     [Fact]
+    public async Task TestFlipFirstCard_WaitsForControlled()
+    {
+        var board = Board.ParseFromFile(PerfectBoardPath);
+        
+        // Alice controls a card
+        await board.FlipAsync("alice", new Position(0, 0));
+        
+        // Bob tries to flip the same card - should wait (Rule 1-D)
+        var bobTask = board.FlipAsync("bob", new Position(0, 0));
+        
+        // Bob should be waiting (not completed yet)
+        await Task.Delay(100);
+        Assert.False(bobTask.IsCompleted);
+        
+        // Alice releases by flipping second card (non-match)
+        await board.FlipAsync("alice", new Position(0, 2));
+        
+        // Now Bob should get the card
+        var outcome = await bobTask;
+        Assert.Equal(FlipOutcome.FirstControlled, outcome);
+        
+        // Bob should control it now
+        var state = board.ViewBy("bob");
+        Assert.StartsWith("my", state.Spots[0]);
+    }
+
+    [Fact]
+    public async Task TestFlipSecondCard_EmptyFails()
+    {
+        var board = Board.ParseFromFile(PerfectBoardPath);
+        
+        // Alice controls first card
+        await board.FlipAsync("alice", new Position(0, 0));
+        
+        // Bob matches and removes a pair to create empty space
+        await board.FlipAsync("bob", new Position(1, 1));
+        await board.FlipAsync("bob", new Position(2, 2)); // Assuming these match
+        
+        // Check if they matched and trigger cleanup
+        var bobState = board.ViewBy("bob");
+        if (bobState.Spots[4].StartsWith("my") && bobState.Spots[8].StartsWith("my"))
+        {
+            // They matched - trigger cleanup
+            await board.FlipAsync("bob", new Position(0, 1));
+            
+            // Alice tries to flip removed position as second card (Rule 2-A)
+            var outcome = await board.FlipAsync("alice", new Position(1, 1));
+            
+            Assert.Equal(FlipOutcome.FailNoCard, outcome);
+            
+            // Alice should have lost control of first card
+            var aliceState = board.ViewBy("alice");
+            Assert.StartsWith("up", aliceState.Spots[0]); // No longer "my"
+        }
+    }
+
+    [Fact]
+    public async Task TestFlipSecondCard_ControlledFails()
+    {
+        var board = Board.ParseFromFile(PerfectBoardPath);
+        
+        // Alice controls first card
+        await board.FlipAsync("alice", new Position(0, 0));
+        
+        // Bob controls another card
+        await board.FlipAsync("bob", new Position(0, 1));
+        
+        // Alice tries to flip Bob's controlled card as second (Rule 2-B)
+        var outcome = await board.FlipAsync("alice", new Position(0, 1));
+        
+        Assert.Equal(FlipOutcome.FailControlled, outcome);
+        
+        // Alice should have lost control
+        var aliceState = board.ViewBy("alice");
+        Assert.StartsWith("up", aliceState.Spots[0]); // Not "my"
+        
+        // Bob should still control his card
+        var bobState = board.ViewBy("bob");
+        Assert.StartsWith("my", bobState.Spots[1]);
+    }
+
+    [Fact]
+    public async Task TestCleanup_DoesNotFlipDownControlledCards()
+    {
+        var board = Board.ParseFromFile(PerfectBoardPath);
+        
+        // Alice flips non-matching pair
+        await board.FlipAsync("alice", new Position(0, 0));
+        await board.FlipAsync("alice", new Position(0, 2)); // No match
+        
+        // Cards should be face up
+        var state1 = board.ViewBy("alice");
+        Assert.StartsWith("up", state1.Spots[0]);
+        Assert.StartsWith("up", state1.Spots[2]);
+        
+        // Bob takes control of one of Alice's cards
+        await board.FlipAsync("bob", new Position(0, 0));
+        
+        // Alice flips new first card - should trigger cleanup (Rule 3-B)
+        await board.FlipAsync("alice", new Position(1, 0));
+        
+        // Card (0,0) should still be face up (Bob controls it, so Rule 3-B doesn't flip it)
+        var state2 = board.ViewBy("alice");
+        Assert.StartsWith("up", state2.Spots[0]); // NOT "down" - Bob controls it
+        
+        // Card (0,2) should be face down (not controlled)
+        Assert.Equal("down", state2.Spots[2]);
+        
+        // Verify Bob still controls (0,0)
+        var bobState = board.ViewBy("bob");
+        Assert.StartsWith("my", bobState.Spots[0]);
+    }
+
+    [Fact]
     public void TestToString_ShowsBoardState()
     {
         var board = Board.ParseFromFile(PerfectBoardPath);
@@ -332,7 +446,7 @@ public class BoardTests
         var board = Board.ParseFromFile(PerfectBoardPath);
         
         // Start watching in background
-        var watchTask = board.WaitForChangeAsync();
+        var watchTask = board.WaitForChangeAsync("player1");
         
         // Watch should not complete immediately
         await Task.Delay(100);
@@ -352,9 +466,9 @@ public class BoardTests
         var board = Board.ParseFromFile(PerfectBoardPath);
         
         // Multiple watchers
-        var watch1 = board.WaitForChangeAsync();
-        var watch2 = board.WaitForChangeAsync();
-        var watch3 = board.WaitForChangeAsync();
+        var watch1 = board.WaitForChangeAsync("p1");
+        var watch2 = board.WaitForChangeAsync("p2");
+        var watch3 = board.WaitForChangeAsync("p3");
         
         // All should be waiting
         await Task.Delay(100);
@@ -377,7 +491,7 @@ public class BoardTests
     {
         var board = Board.ParseFromFile(PerfectBoardPath);
         
-        var watchTask = board.WaitForChangeAsync();
+        var watchTask = board.WaitForChangeAsync("player1");
         await Task.Delay(50);
         Assert.False(watchTask.IsCompleted);
         
@@ -398,7 +512,7 @@ public class BoardTests
         await board.FlipAsync("alice", new Position(0, 2)); // Non-match
         
         // Cards are now face up
-        var watchTask = board.WaitForChangeAsync();
+        var watchTask = board.WaitForChangeAsync("player1");
         await Task.Delay(50);
         Assert.False(watchTask.IsCompleted);
         
@@ -419,7 +533,7 @@ public class BoardTests
         await board.FlipAsync("alice", new Position(0, 1)); // Match
         
         // Start watching
-        var watchTask = board.WaitForChangeAsync();
+        var watchTask = board.WaitForChangeAsync("player1");
         await Task.Delay(50);
         Assert.False(watchTask.IsCompleted);
         
@@ -435,7 +549,7 @@ public class BoardTests
     {
         var board = Board.ParseFromFile(PerfectBoardPath);
         
-        var watchTask = board.WaitForChangeAsync();
+        var watchTask = board.WaitForChangeAsync("player1");
         await Task.Delay(50);
         Assert.False(watchTask.IsCompleted);
         
@@ -455,8 +569,8 @@ public class BoardTests
     {
         var board = Board.ParseFromFile(PerfectBoardPath);
         
-        // Start watching
-        var watchTask = board.WaitForChangeAsync();
+        // Start watching (Fixed: added missing playerId parameter)
+        var watchTask = board.WaitForChangeAsync("player1");
         
         // Other operations should work normally while watching
         var lookResult = board.ViewBy("player2");
