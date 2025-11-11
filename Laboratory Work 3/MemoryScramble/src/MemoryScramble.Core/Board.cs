@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 
 namespace MemoryScramble.Core;
 
@@ -159,8 +160,16 @@ public sealed class Board
     // === PROBLEM 3: Added lock for thread-safe concurrent access ===
     private readonly object _lock = new();
     
-    // === PROBLEM 5: Watch functionality - list of watchers waiting for board changes ===
-    private readonly List<TaskCompletionSource<bool>> _watchers = new();
+    // Serialize flips per-player to prevent overlapping first/second flip races
+    private readonly Dictionary<string, SemaphoreSlim> _playerLocks = new(StringComparer.Ordinal);
+    
+    // === PROBLEM 5: Watch functionality (versioned) ===
+    // Monotonic version that increments on any visible change
+    private long _version = 0;
+    // List of watchers waiting for the next version; each is completed with the new version
+    private readonly List<TaskCompletionSource<long>> _watchers = new();
+    // Tracks the last delivered version per player to eliminate long-poll gaps
+    private readonly Dictionary<string, long> _playerLastVersion = new(StringComparer.Ordinal);
 
     [Conditional("DEBUG")]
     private void checkRep()
@@ -352,6 +361,20 @@ public sealed class Board
     /// <exception cref="InvalidPositionException">If position is outside board bounds</exception>
     public async Task<FlipOutcome> FlipAsync(string playerId, Position position)
     {
+        // Per-player serialization: prevent overlapping flips from the same player
+        SemaphoreSlim playerSemaphore;
+        lock (_lock)
+        {
+            if (!_playerLocks.TryGetValue(playerId, out playerSemaphore!))
+            {
+                playerSemaphore = new SemaphoreSlim(1, 1);
+                _playerLocks[playerId] = playerSemaphore;
+            }
+        }
+
+        await playerSemaphore.WaitAsync().ConfigureAwait(false);
+        try
+        {
         // Validate position
         if (position.Row < 0 || position.Row >= _rows || position.Col < 0 || position.Col >= _cols)
             throw new InvalidPositionException(position);
@@ -392,6 +415,11 @@ public sealed class Board
                 return FlipSecondCard(playerId, player, position, _grid[position.Row, position.Col]);
             }
         }
+        }
+        finally
+        {
+            playerSemaphore.Release();
+        }
     }
 
     /// <summary>
@@ -410,8 +438,8 @@ public sealed class Board
                 slot.FaceUp = false;
                 slot.ControlledBy = null;
                 
-                // PROBLEM 3: Notify waiting players that card is now available
-                NotifyWaitingPlayers(slot);
+                // PROBLEM 3: Card removed: wake all waiters so they don't hang
+                NotifyWaitingPlayers(slot, notifyAll: true);
             }
             player.Controlled.Clear();
             
@@ -430,7 +458,7 @@ public sealed class Board
                 {
                     slot.FaceUp = false;
                     anyFlipped = true;
-                    // PROBLEM 3: Notify waiting players that card is now face down (they can flip it)
+                    // PROBLEM 3: Normal availability: wake one waiter to preserve FIFO fairness
                     NotifyWaitingPlayers(slot);
                 }
             }
@@ -491,94 +519,83 @@ public sealed class Board
     /// </summary>
     private async Task<FlipOutcome> FlipFirstCardAsync(string playerId, PlayerState player, Position position)
     {
-        CardSlot slot;
-        lock (_lock)
+        while (true)
         {
-            slot = _grid[position.Row, position.Col];
-            
-            // Rule 1-A: No card at this position
-            if (slot.IsEmpty)
-            {
-                checkRep();
-                return FlipOutcome.FailNoCard;
-            }
-        }
+            CardSlot slot;
+            TaskCompletionSource<bool>? waitTask = null;
 
-        // Rule 1-D: Card is controlled by another player - WAIT for it
-        TaskCompletionSource<bool>? waitTask = null;
-        lock (_lock)
-        {
-            if (slot.ControlledBy != null && slot.ControlledBy != playerId)
+            // Inspect state and decide whether to wait or take control
+            lock (_lock)
             {
-                // Add this player to the waiting queue
-                waitTask = new TaskCompletionSource<bool>();
-                slot.WaitingQueue.Enqueue(waitTask);
-            }
-        }
+                slot = _grid[position.Row, position.Col];
 
-        // Wait outside the lock if necessary
-        if (waitTask != null)
-        {
-            await waitTask.Task;
-            // After waiting, we were notified that the card was released
-            // Now we need to re-acquire the lock and take control
-        }
+                // Rule 1-A: No card at this position
+                if (slot.IsEmpty)
+                {
+                    checkRep();
+                    return FlipOutcome.FailNoCard;
+                }
 
-        // Now take control of the card (must re-acquire lock after waiting)
-        lock (_lock)
-        {
-            // Re-read slot in case it changed while we were waiting
-            slot = _grid[position.Row, position.Col];
-            
-            // Re-check if card still exists (might have been removed while waiting)
-            if (slot.IsEmpty)
-            {
-                checkRep();
-                return FlipOutcome.FailNoCard;
-            }
-            
-            // Re-check if card is still uncontrolled (another player might have grabbed it)
-            if (slot.ControlledBy != null && slot.ControlledBy != playerId)
-            {
-                // Card was taken by someone else after we woke up - this shouldn't happen
-                // in our current implementation, but add safety check anyway
-                checkRep();
-                return FlipOutcome.FailControlled;
+                // Rule 1-D: Card is controlled by another player → keep waiting
+                if (slot.ControlledBy != null && slot.ControlledBy != playerId)
+                {
+                    waitTask = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    slot.WaitingQueue.Enqueue(waitTask);
+                    // fall through to await outside lock
+                }
+                else
+                {
+                    // Card is available: flip up if needed and take control
+                    bool wasFlipped = false;
+                    if (!slot.FaceUp)
+                    {
+                        slot.FaceUp = true;
+                        wasFlipped = true;
+                    }
+
+                    slot.ControlledBy = playerId;
+                    player.Controlled.Add(position);
+
+                    if (wasFlipped)
+                    {
+                        NotifyWatchers();
+                    }
+
+                    checkRep();
+                    return FlipOutcome.FirstControlled;
+                }
             }
 
-            // Rule 1-B: Card is face down - flip it up
-            bool wasFlipped = false;
-            if (!slot.FaceUp)
+            // If we need to wait, do it outside the lock, then loop and re-check
+            if (waitTask != null)
             {
-                slot.FaceUp = true;
-                wasFlipped = true;
+                await waitTask.Task.ConfigureAwait(false);
+                // Loop to re-check the state and either take control or wait again
             }
-
-            // Rule 1-C: Card is already face up but not controlled - we can control it
-            slot.ControlledBy = playerId;
-            player.Controlled.Add(position);
-
-            // PROBLEM 5: Notify watchers if card was flipped face up
-            if (wasFlipped)
-            {
-                NotifyWatchers();
-            }
-
-            checkRep();
-            return FlipOutcome.FirstControlled;
         }
     }
 
     /// <summary>
     /// PROBLEM 3: Notifies waiting players that a card is now available.
     /// </summary>
-    private void NotifyWaitingPlayers(CardSlot slot)
+    private void NotifyWaitingPlayers(CardSlot slot, bool notifyAll = false)
     {
-        // Notify the next waiting player (if any)
-        if (slot.WaitingQueue.Count > 0)
+        // Notify waiting player(s)
+        if (!notifyAll)
         {
-            var nextWaiter = slot.WaitingQueue.Dequeue();
-            nextWaiter.SetResult(true); // Wake up the waiting player
+            if (slot.WaitingQueue.Count > 0)
+            {
+                var nextWaiter = slot.WaitingQueue.Dequeue();
+                nextWaiter.TrySetResult(true); // Wake up the next waiting player
+            }
+            return;
+        }
+
+        // notifyAll: wake everyone currently waiting on this slot
+        while (slot.WaitingQueue.Count > 0)
+        {
+            var waiter = slot.WaitingQueue.Dequeue();
+            waiter.TrySetResult(true);
         }
     }
 
@@ -647,7 +664,7 @@ public sealed class Board
             player.Controlled.Clear();
             player.Pending = PlayerTurnStatus.NoMatchShown;
             
-            // PROBLEM 3: Notify any players waiting for the first card
+            // PROBLEM 3: Normal availability after releasing: wake one waiter
             NotifyWaitingPlayers(firstSlot);
 
             checkRep();
@@ -678,6 +695,7 @@ public sealed class Board
         foreach (var pos in positions)
         {
             var slot = _grid[pos.Row, pos.Col];
+            // Card just became uncontrolled; wake one waiter to contend now.
             NotifyWaitingPlayers(slot);
         }
     }
@@ -763,16 +781,35 @@ public sealed class Board
     /// Control changes (take/release without flipping) do NOT trigger this.
     /// </summary>
     /// <returns>A task that completes when the board changes</returns>
-    public async Task WaitForChangeAsync()
+    public async Task WaitForChangeAsync(string playerId)
     {
-        TaskCompletionSource<bool> watcher;
+        TaskCompletionSource<long> watcher;
         lock (_lock)
         {
-            watcher = new TaskCompletionSource<bool>();
+            // Initialize last version for this player if first time
+            if (!_playerLastVersion.TryGetValue(playerId, out var last))
+            {
+                _playerLastVersion[playerId] = _version;
+                last = _version;
+            }
+
+            // If a newer version already exists, return immediately (no gap)
+            if (_version > last)
+            {
+                _playerLastVersion[playerId] = _version;
+                return;
+            }
+
+            // Otherwise, wait for the next version
+            watcher = new TaskCompletionSource<long>(TaskCreationOptions.RunContinuationsAsynchronously);
             _watchers.Add(watcher);
         }
         // Wait outside the lock - this allows other operations to proceed
-        await watcher.Task;
+        var newVersion = await watcher.Task.ConfigureAwait(false);
+        lock (_lock)
+        {
+            _playerLastVersion[playerId] = newVersion;
+        }
     }
 
     /// <summary>
@@ -781,9 +818,13 @@ public sealed class Board
     /// </summary>
     private void NotifyWatchers()
     {
+        // Bump board version on any visible change
+        _version++;
+        var newVersion = _version;
+
         foreach (var watcher in _watchers)
         {
-            watcher.TrySetResult(true);
+            watcher.TrySetResult(newVersion);
         }
         _watchers.Clear();
     }

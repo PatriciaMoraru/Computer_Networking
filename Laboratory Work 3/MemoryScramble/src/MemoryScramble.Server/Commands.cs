@@ -78,8 +78,19 @@ public static class Commands
     /// <returns>The updated state of the board from playerId's perspective</returns>
     public static async Task<string> WatchAsync(Board board, string playerId)
     {
-        await board.WaitForChangeAsync();
+        await board.WaitForChangeAsync(playerId);
         return board.ViewBy(playerId).ToProtocolString();
+    }
+
+    /// <summary>
+    /// Resets the board by reloading it from the specified file.
+    /// Pure glue code (1 line) - delegates to Board factory method.
+    /// </summary>
+    /// <param name="boardFilePath">Path to the board file to load</param>
+    /// <returns>A new Board instance loaded from the file</returns>
+    public static Board Reset(string boardFilePath)
+    {
+        return Board.ParseFromFile(boardFilePath);
     }
 }
 
