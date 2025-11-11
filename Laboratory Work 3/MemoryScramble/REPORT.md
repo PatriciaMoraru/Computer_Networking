@@ -1033,9 +1033,9 @@ Moves per second:  821
 ```
 
 **Success criteria:**
-- ✅ Errors = 0 (No crashes)
-- ✅ Duration < 1 second (Performance)
-- ✅ All players complete (No deadlocks)
+- Errors = 0 (No crashes)
+- Duration < 1 second (Performance)
+- All players complete (No deadlocks)
 
 ---
 
@@ -1210,21 +1210,21 @@ Total: 400 moves in 699ms → 572 moves/second → 0 errors ✓
 ### Key Race Conditions Tested
 
 **At 1.0ms:** Player 2 tries to flip card (2,3) already controlled by Player 0
-- ✅ Rule 1-D correctly enforces waiting
-- ✅ Player 2 enqueued in waiting queue
-- ✅ HTTP request blocks (no premature failure)
+- Rule 1-D correctly enforces waiting
+- Player 2 enqueued in waiting queue
+- HTTP request blocks (no premature failure)
 
 **At 2.2ms:** Player 0 tries second flip on card controlled by Player 1
-- ✅ Rule 2-B correctly rejects immediately (no waiting for second card)
-- ✅ Player 0 relinquishes control of first card (2,3)
-- ✅ Waiting queue notified → Player 2 wakes up
-- ✅ Player 2 successfully takes control of released card
+- Rule 2-B correctly rejects immediately (no waiting for second card)
+- Player 0 relinquishes control of first card (2,3)
+- Waiting queue notified → Player 2 wakes up
+- Player 2 successfully takes control of released card
 
 **Throughout:** Random positions and delays create continuous contention
-- ✅ Multiple players trying same card simultaneously
-- ✅ Cards being removed while others wait for them
-- ✅ Second flip failures forcing control release
-- ✅ Cleanup (Rule 3) interleaving with concurrent flips
+- Multiple players trying same card simultaneously
+- Cards being removed while others wait for them
+- Second flip failures forcing control release
+- Cleanup (Rule 3) interleaving with concurrent flips
 
 ### Success Rate Analysis
 
@@ -1241,10 +1241,10 @@ Total: 400 moves in 699ms → 572 moves/second → 0 errors ✓
 - Rule 2-B: Second flip on controlled card
 
 **Zero errors proves:**
-- ✅ No crashes under concurrent load
-- ✅ No deadlocks or livelocks
-- ✅ No representation invariant violations
-- ✅ All rules correctly enforced
+- No crashes under concurrent load
+- No deadlocks or livelocks
+- No representation invariant violations
+- All rules correctly enforced
 
 ---
 
