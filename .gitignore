@@ -1,0 +1,90 @@
+# =============================================================================
+# C# / .NET
+# =============================================================================
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# NuGet
+*.nupkg
+**/packages/*
+!**/packages/build/
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Rider
+.idea/
+*.sln.iml
+
+# =============================================================================
+# Python
+# =============================================================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# =============================================================================
+# Docker
+# =============================================================================
+
+# Don't ignore docker-compose.yml or Dockerfile, but ignore temp files
+*.log
+
+# =============================================================================
+# OS generated files
+# =============================================================================
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# =============================================================================
+# IDE / Editor
+# =============================================================================
+
+# VSCode (keep settings but ignore history)
+.history/
+
+# =============================================================================
+# Project specific
+# =============================================================================
+
+# Experiment results (optional - uncomment if you don't want to track)
+# results/*.csv
+# results/*.png
