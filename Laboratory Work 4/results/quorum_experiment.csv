@@ -1,0 +1,6 @@
+write_quorum,avg_latency_ms,median_latency_ms,min_latency_ms,max_latency_ms,stdev_ms,success_rate,all_consistent
+1,166.39,140.77,34.57,448.14,94.37,1.00,False
+2,234.85,231.75,40.97,471.45,97.44,1.00,True
+3,337.04,349.05,96.12,585.23,99.54,1.00,True
+4,419.78,415.76,215.41,594.37,96.14,1.00,True
+5,496.34,507.60,237.65,635.91,78.70,1.00,True
