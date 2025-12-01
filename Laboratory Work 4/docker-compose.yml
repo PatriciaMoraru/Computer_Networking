@@ -71,3 +71,4 @@ services:
     command: ["sleep", "infinity"]
     volumes:
       - ./tests:/app/tests:ro
+      - ./results:/app/results
