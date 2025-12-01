@@ -75,6 +75,44 @@ async def put_value(key: str, payload: ValuePayload):
     return {"status": "ok", "key": key, "value": payload.value, "version": version}
 
 
+# -------- Admin API (for experiments) --------
+
+@app.get("/admin/quorum")
+async def get_quorum():
+    """Get current write quorum value"""
+    if replicator is None:
+        raise HTTPException(status_code=400, detail="Not a leader node")
+    return {"write_quorum": replicator.write_quorum}
+
+
+@app.put("/admin/quorum/{value}")
+async def set_quorum(value: int):
+    """
+    Dynamically change write quorum at runtime.
+    
+    This allows running experiments without restarting containers.
+    Only works on the leader node.
+    """
+    if replicator is None:
+        raise HTTPException(status_code=400, detail="Not a leader node")
+    
+    max_quorum = len(replicator.followers)
+    if not 1 <= value <= max_quorum:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Quorum must be between 1 and {max_quorum}"
+        )
+    
+    old_value = replicator.write_quorum
+    replicator.write_quorum = value
+    
+    return {
+        "status": "updated",
+        "old_quorum": old_value,
+        "new_quorum": value
+    }
+
+
 # -------- Internal API (used by leader -> followers) --------
 
 @app.put("/internal/replicate/{key}")
@@ -93,7 +131,7 @@ async def internal_replicate(key: str, payload: ReplicatePayload):
             detail="This node is not a follower",
         )
 
-    # Use put_if_newer to handle race conditions
+    # put_if_newer to handle race conditions
     accepted = store.put_if_newer(key, payload.value, payload.version)
     
     return {
