@@ -43,7 +43,7 @@ class Replicator:
         delay_sec = random.uniform(self.min_delay_ms / 1000, self.max_delay_ms / 1000)
         await asyncio.sleep(delay_sec)
 
-        # internal endpoint on follower - include version for consistency
+        # internal endpoint on follower
         client = await self._get_client()
         url = f"http://{follower}/internal/replicate/{key}"
         try:
@@ -67,7 +67,7 @@ class Replicator:
             # degenerate case: no followers, or no quorum needed
             return True
 
-        # Create tasks for all followers - include version for consistency
+        # Create tasks for all followers
         tasks = [
             asyncio.create_task(self._replicate_to_one(follower, key, value, version))
             for follower in self.followers

@@ -26,7 +26,7 @@ from typing import List, Optional, Dict
 
 import httpx
 
-# Configuration - adjust if running from host vs inside Docker
+# Configuration
 LEADER_URL = "http://leader:8000"  # Inside Docker network
 # LEADER_URL = "http://localhost:8000"  # From host machine
 
@@ -59,7 +59,7 @@ class QuorumResult:
     p99_latency_ms: float
     stdev_ms: float
     success_rate: float
-    consistency_pct: float  # Percentage of matching keys across all replicas
+    consistency_pct: float 
 
 
 def percentile(data: List[float], p: float) -> float:
@@ -173,7 +173,6 @@ async def verify_consistency(client: httpx.AsyncClient) -> float:
             except Exception:
                 pass  # Count as mismatch
     
-    # Calculate percentage
     if total_comparisons == 0:
         return 0.0
     return (matching_pairs / total_comparisons) * 100.0
@@ -257,7 +256,6 @@ async def main():
     quorum_values = [1, 2, 3, 4, 5]
     
     async with httpx.AsyncClient(timeout=60.0) as client:
-        # Check connection
         try:
             resp = await client.get(f"{LEADER_URL}/health")
             if resp.status_code != 200:
@@ -270,7 +268,6 @@ async def main():
             print("Make sure containers are running: docker-compose up -d")
             return
         
-        # Get initial quorum
         initial_quorum = await get_quorum(client)
         print(f"Initial quorum: {initial_quorum}")
         print()
@@ -316,7 +313,6 @@ async def main():
     print()
     print(f"Total experiment time: {elapsed:.1f} seconds")
     
-    # Save to CSV
     if results:
         save_results_csv(results, "results/quorum_experiment.csv")
     

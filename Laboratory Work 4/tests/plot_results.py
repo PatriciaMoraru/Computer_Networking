@@ -46,7 +46,6 @@ def load_results(csv_file: str) -> dict:
             data['median_latency'].append(float(row['median_latency_ms']))
             data['min_latency'].append(float(row['min_latency_ms']))
             data['max_latency'].append(float(row['max_latency_ms']))
-            # Handle both old and new CSV formats
             data['p95_latency'].append(float(row.get('p95_latency_ms', row.get('max_latency_ms', 0))))
             data['p99_latency'].append(float(row.get('p99_latency_ms', row.get('max_latency_ms', 0))))
             data['stdev'].append(float(row['stdev_ms']))
@@ -60,7 +59,6 @@ def plot_latency_chart(data: dict, output_file: str):
         print("Cannot generate chart without matplotlib")
         return
     
-    # Try different style names for compatibility with different matplotlib versions
     style_options = ['seaborn-v0_8-darkgrid', 'seaborn-darkgrid', 'ggplot', 'default']
     for style in style_options:
         try:
@@ -71,19 +69,16 @@ def plot_latency_chart(data: dict, output_file: str):
     
     fig, ax = plt.subplots(figsize=(12, 7))
     
-    # Set dark background for modern look
     fig.patch.set_facecolor('#1a1a2e')
     ax.set_facecolor('#16213e')
     
     quorum = data['quorum']
     
-    # Convert to seconds for cleaner display
     mean_s = [x / 1000 for x in data['avg_latency']]
     median_s = [x / 1000 for x in data['median_latency']]
     p95_s = [x / 1000 for x in data['p95_latency']]
     p99_s = [x / 1000 for x in data['p99_latency']]
     
-    # Vibrant color palette
     colors = {
         'mean': '#00d4ff',      # Cyan
         'median': '#ff6b6b',    # Coral
@@ -91,7 +86,6 @@ def plot_latency_chart(data: dict, output_file: str):
         'p99': '#ffe66d',       # Yellow
     }
     
-    # Plot with glow effect (plot twice - thick transparent + thin solid)
     for metric, values, color, marker, label in [
         ('mean', mean_s, colors['mean'], 'o', 'Mean'),
         ('median', median_s, colors['median'], 's', 'Median'),
@@ -153,13 +147,11 @@ def plot_latency_chart(data: dict, output_file: str):
     
     plt.tight_layout()
     
-    # Save
     os.makedirs(os.path.dirname(output_file) or '.', exist_ok=True)
     plt.savefig(output_file, dpi=200, bbox_inches='tight', 
                 facecolor=fig.get_facecolor(), edgecolor='none')
     print(f"Chart saved to: {output_file}")
     
-    # Reset style for future plots
     plt.style.use('default')
 
 
@@ -189,7 +181,6 @@ def main():
         print(f"Results file not found: {csv_file}")
         print("Run the experiment first: python tests/run_quorum_experiment.py")
         
-        # Demo with sample data
         print("\nGenerating demo chart with sample data...")
         demo_data = {
             'quorum': [1, 2, 3, 4, 5],
@@ -211,10 +202,8 @@ def main():
     
     print(f"Found {len(data['quorum'])} data points")
     
-    # Always print text chart
     print_text_chart(data)
     
-    # Generate image if matplotlib available
     if HAS_MATPLOTLIB:
         plot_latency_chart(data, output_file)
     else:

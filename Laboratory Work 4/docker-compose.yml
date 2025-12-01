@@ -70,4 +70,4 @@ services:
     # Keep container alive for manual test execution
     command: ["sleep", "infinity"]
     volumes:
-      - ./tests:/app/tests:ro  # Mount tests as read-only for live updates
+      - ./tests:/app/tests:ro

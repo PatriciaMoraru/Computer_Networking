@@ -125,7 +125,7 @@ def test_replication_eventual_consistency():
             resp = client.put(f"{LEADER_URL}/kv/{k}", json={"value": v})
             assert resp.status_code == 200
 
-        # 2) wait for replication to complete (or do smarter polling)
+        # 2) wait for replication to complete
         time.sleep(2)
 
         # 3) verify on leader and followers
@@ -135,11 +135,9 @@ def test_replication_eventual_consistency():
             assert r_leader.status_code == 200
             assert r_leader.json()["value"] == v
 
-            # followers (you might need extra config to reach them from host)
+            # followers
             for host in FOLLOWER_HOSTS:
-                # adjust host or port mapping to how you expose followers
                 url = _follower_url(host)
                 r_f = client.get(f"{url}/kv/{k}")
-                # depending on network setup this may need tweaking
                 assert r_f.status_code == 200
                 assert r_f.json()["value"] == v

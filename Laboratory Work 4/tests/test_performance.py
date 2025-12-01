@@ -270,7 +270,7 @@ async def main():
     print()
     print("=" * 60)
     
-    # Output in CSV-friendly format for plotting
+    # Output
     print("CSV OUTPUT (for plotting):")
     print("avg_latency_ms,median_latency_ms,min_latency_ms,max_latency_ms,p95_latency_ms,p99_latency_ms,stdev_ms,success_rate")
     success_rate = results.successful_writes / results.total_writes if results.total_writes > 0 else 0
