@@ -481,6 +481,23 @@ Run tests with:
 docker exec kv-tests pytest tests/test_integration.py -v
 ```
 
+### Test Results
+
+```
+============================= test session starts ==============================
+platform linux -- Python 3.11.14, pytest-9.0.1, pluggy-1.6.0
+rootdir: /app
+plugins: anyio-4.12.0
+collecting ... collected 4 items
+
+tests/test_integration.py::test_followers_reject_writes PASSED           [ 25%]
+tests/test_integration.py::test_leader_accepts_writes PASSED             [ 50%]
+tests/test_integration.py::test_concurrent_writes PASSED                 [ 75%]
+tests/test_integration.py::test_replication_eventual_consistency PASSED  [100%]
+
+============================== 4 passed in 6.56s ===============================
+```
+
 ---
 
 ## 8. Conclusion
