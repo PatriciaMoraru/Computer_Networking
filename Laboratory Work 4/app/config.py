@@ -10,7 +10,7 @@ class Settings:
         self.min_delay_ms: int = int(os.getenv("MIN_DELAY_MS", "0"))
         self.max_delay_ms: int = int(os.getenv("MAX_DELAY_MS", "0"))
 
-        # only used on follower (optional, but nice to have)
+        # only used on follower
         self.leader_url: str = os.getenv("LEADER_URL", "")
 
     @property

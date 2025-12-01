@@ -65,8 +65,6 @@ async def put_value(key: str, payload: ValuePayload):
     if replicator is not None:
         ok = await replicator.replicate(key, payload.value, version)
         if not ok:
-            # you might still consider the write 'durable enough',
-            # but for the lab it's fine to surface an error
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Write quorum not reached",
