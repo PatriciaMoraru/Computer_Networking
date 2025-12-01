@@ -59,7 +59,7 @@ class QuorumResult:
     p99_latency_ms: float
     stdev_ms: float
     success_rate: float
-    all_consistent: bool
+    consistency_pct: float  # Percentage of matching keys across all replicas
 
 
 def percentile(data: List[float], p: float) -> float:
@@ -135,8 +135,13 @@ async def run_writes(client: httpx.AsyncClient) -> List[WriteResult]:
     return all_results
 
 
-async def verify_consistency(client: httpx.AsyncClient) -> bool:
-    """Check if all followers have same data as leader"""
+async def verify_consistency(client: httpx.AsyncClient) -> float:
+    """
+    Check consistency between leader and all followers.
+    Returns percentage of matching key-value pairs (0.0 to 100.0).
+    
+    Total comparisons = NUM_KEYS × len(FOLLOWER_HOSTS) = 10 × 5 = 50
+    """
     # Get leader data
     leader_data = {}
     for key_idx in range(NUM_KEYS):
@@ -148,28 +153,30 @@ async def verify_consistency(client: httpx.AsyncClient) -> bool:
         except Exception:
             pass
     
-    # Compare with each follower
-    all_consistent = True
+    if not leader_data:
+        return 0.0
+    
+    # Compare with each follower and count matches
+    total_comparisons = 0
+    matching_pairs = 0
+    
     for host in FOLLOWER_HOSTS:
         follower_url = f"http://{host}:{FOLLOWER_PORT}"
         for key, leader_value in leader_data.items():
+            total_comparisons += 1
             try:
                 resp = await client.get(f"{follower_url}/kv/{key}")
                 if resp.status_code == 200:
                     follower_value = resp.json()["value"]
-                    if follower_value != leader_value:
-                        all_consistent = False
-                        break
-                else:
-                    all_consistent = False
-                    break
+                    if follower_value == leader_value:
+                        matching_pairs += 1
             except Exception:
-                all_consistent = False
-                break
-        if not all_consistent:
-            break
+                pass  # Count as mismatch
     
-    return all_consistent
+    # Calculate percentage
+    if total_comparisons == 0:
+        return 0.0
+    return (matching_pairs / total_comparisons) * 100.0
 
 
 async def run_experiment_for_quorum(client: httpx.AsyncClient, quorum: int) -> Optional[QuorumResult]:
@@ -198,8 +205,8 @@ async def run_experiment_for_quorum(client: httpx.AsyncClient, quorum: int) -> O
     print("  Waiting for background replications...")
     await asyncio.sleep(2)
     
-    # Check consistency
-    all_consistent = await verify_consistency(client)
+    # Check consistency (returns percentage)
+    consistency_pct = await verify_consistency(client)
     
     return QuorumResult(
         write_quorum=quorum,
@@ -211,7 +218,7 @@ async def run_experiment_for_quorum(client: httpx.AsyncClient, quorum: int) -> O
         p99_latency_ms=percentile(latencies, 99),
         stdev_ms=statistics.stdev(latencies) if len(latencies) > 1 else 0,
         success_rate=len(successful) / len(results),
-        all_consistent=all_consistent
+        consistency_pct=consistency_pct
     )
 
 
@@ -224,14 +231,14 @@ def save_results_csv(results: List[QuorumResult], output_file: str):
         writer.writerow([
             'write_quorum', 'avg_latency_ms', 'median_latency_ms', 
             'min_latency_ms', 'max_latency_ms', 'p95_latency_ms', 'p99_latency_ms',
-            'stdev_ms', 'success_rate', 'all_consistent'
+            'stdev_ms', 'success_rate', 'consistency_pct'
         ])
         for r in results:
             writer.writerow([
                 r.write_quorum, f"{r.avg_latency_ms:.2f}", f"{r.median_latency_ms:.2f}",
                 f"{r.min_latency_ms:.2f}", f"{r.max_latency_ms:.2f}", 
                 f"{r.p95_latency_ms:.2f}", f"{r.p99_latency_ms:.2f}",
-                f"{r.stdev_ms:.2f}", f"{r.success_rate:.2f}", r.all_consistent
+                f"{r.stdev_ms:.2f}", f"{r.success_rate:.2f}", f"{r.consistency_pct:.1f}"
             ])
     
     print(f"\nResults saved to: {output_file}")
@@ -279,9 +286,8 @@ async def main():
                 result = await run_experiment_for_quorum(client, quorum)
                 if result:
                     results.append(result)
-                    consistent_str = "Yes" if result.all_consistent else "No"
                     print(f"\n  ✓ Quorum {quorum}: avg={result.avg_latency_ms:.1f}ms, "
-                          f"median={result.median_latency_ms:.1f}ms, consistent={consistent_str}")
+                          f"median={result.median_latency_ms:.1f}ms, consistency={result.consistency_pct:.1f}%")
                 else:
                     print(f"\n  ✗ Quorum {quorum}: FAILED")
             except Exception as e:
@@ -301,12 +307,11 @@ async def main():
     print("SUMMARY")
     print("=" * 70)
     print()
-    print(f"{'Quorum':<8} {'Mean':<10} {'Median':<10} {'P95':<10} {'P99':<10} {'Consistent':<12}")
+    print(f"{'Quorum':<8} {'Mean':<10} {'Median':<10} {'P95':<10} {'P99':<10} {'Consistency':<12}")
     print("-" * 70)
     for r in results:
-        consistent_str = "Yes" if r.all_consistent else "No"
         print(f"{r.write_quorum:<8} {r.avg_latency_ms:<10.1f} {r.median_latency_ms:<10.1f} "
-              f"{r.p95_latency_ms:<10.1f} {r.p99_latency_ms:<10.1f} {consistent_str:<12}")
+              f"{r.p95_latency_ms:<10.1f} {r.p99_latency_ms:<10.1f} {r.consistency_pct:<10.1f}%")
     
     print()
     print(f"Total experiment time: {elapsed:.1f} seconds")
