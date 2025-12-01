@@ -331,7 +331,6 @@ public class BoardTests
             return transformed;
         });
         
-        // Success - no assertion failures means consistency was maintained
         Assert.NotNull(result);
     }
 
@@ -569,7 +568,7 @@ public class BoardTests
     {
         var board = Board.ParseFromFile(PerfectBoardPath);
         
-        // Start watching (Fixed: added missing playerId parameter)
+        // Start watching 
         var watchTask = board.WaitForChangeAsync("player1");
         
         // Other operations should work normally while watching

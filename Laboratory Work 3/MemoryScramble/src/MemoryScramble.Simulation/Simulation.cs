@@ -46,17 +46,17 @@ class Program
             var response = await httpClient.GetAsync($"{serverUrl}/look/test");
             if (response.IsSuccessStatusCode)
             {
-                Console.WriteLine("✓ Server is running");
+                Console.WriteLine("Server is running");
             }
             else
             {
-                Console.WriteLine($"✗ Server returned status {response.StatusCode}");
+                Console.WriteLine($"Server returned status {response.StatusCode}");
                 return;
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"✗ Cannot connect to server: {ex.Message}");
+            Console.WriteLine($"Cannot connect to server: {ex.Message}");
             Console.WriteLine();
             Console.WriteLine("Please start the server first:");
             Console.WriteLine($"  dotnet run --project src\\MemoryScramble.Server 8080 {boardFile}");
