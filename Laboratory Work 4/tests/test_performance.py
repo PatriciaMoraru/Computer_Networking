@@ -47,6 +47,17 @@ class WriteResult:
     error: Optional[str] = None
 
 
+def percentile(data: List[float], p: float) -> float:
+    """Calculate the p-th percentile of a list of values"""
+    if not data:
+        return 0.0
+    sorted_data = sorted(data)
+    k = (len(sorted_data) - 1) * (p / 100)
+    f = int(k)
+    c = f + 1 if f + 1 < len(sorted_data) else f
+    return sorted_data[f] + (k - f) * (sorted_data[c] - sorted_data[f])
+
+
 @dataclass 
 class ExperimentResults:
     """Aggregated results from the performance experiment"""
@@ -74,6 +85,14 @@ class ExperimentResults:
     @property
     def stdev_latency_ms(self) -> float:
         return statistics.stdev(self.latencies_ms) if len(self.latencies_ms) > 1 else 0.0
+    
+    @property
+    def p95_latency_ms(self) -> float:
+        return percentile(self.latencies_ms, 95)
+    
+    @property
+    def p99_latency_ms(self) -> float:
+        return percentile(self.latencies_ms, 99)
 
 
 async def single_write(
@@ -225,10 +244,16 @@ async def main():
     print(f"  Median latency:    {results.median_latency_ms:.2f} ms")
     print(f"  Min latency:       {results.min_latency_ms:.2f} ms")
     print(f"  Max latency:       {results.max_latency_ms:.2f} ms")
+    print(f"  P95 latency:       {results.p95_latency_ms:.2f} ms")
+    print(f"  P99 latency:       {results.p99_latency_ms:.2f} ms")
     print(f"  Std dev:           {results.stdev_latency_ms:.2f} ms")
     print()
     
     # Verify consistency
+    # Wait for background replications to complete before checking
+    print("Waiting for background replications to complete...")
+    await asyncio.sleep(2)
+    
     print("-" * 60)
     print("CONSISTENCY CHECK")
     print("-" * 60)
@@ -247,9 +272,9 @@ async def main():
     
     # Output in CSV-friendly format for plotting
     print("CSV OUTPUT (for plotting):")
-    print("avg_latency_ms,median_latency_ms,min_latency_ms,max_latency_ms,stdev_ms,success_rate")
+    print("avg_latency_ms,median_latency_ms,min_latency_ms,max_latency_ms,p95_latency_ms,p99_latency_ms,stdev_ms,success_rate")
     success_rate = results.successful_writes / results.total_writes if results.total_writes > 0 else 0
-    print(f"{results.avg_latency_ms:.2f},{results.median_latency_ms:.2f},{results.min_latency_ms:.2f},{results.max_latency_ms:.2f},{results.stdev_latency_ms:.2f},{success_rate:.2f}")
+    print(f"{results.avg_latency_ms:.2f},{results.median_latency_ms:.2f},{results.min_latency_ms:.2f},{results.max_latency_ms:.2f},{results.p95_latency_ms:.2f},{results.p99_latency_ms:.2f},{results.stdev_latency_ms:.2f},{success_rate:.2f}")
     
     return results, consistency
 

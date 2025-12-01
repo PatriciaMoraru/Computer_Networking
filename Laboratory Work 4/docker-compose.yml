@@ -8,7 +8,7 @@ services:
       ROLE: "leader"
       WRITE_QUORUM: "3"
       MIN_DELAY_MS: "0"
-      MAX_DELAY_MS: "500"
+      MAX_DELAY_MS: "1000"
       FOLLOWERS: "kv-f1:8000,kv-f2:8000,kv-f3:8000,kv-f4:8000,kv-f5:8000"
     ports:
       - "8000:8000"    # expose leader to host

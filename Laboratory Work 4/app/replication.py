@@ -36,37 +36,40 @@ class Replicator:
         follower: str,
         key: str,
         value: str,
+        version: int,
     ) -> bool:
-        """Replicate a single key-value to one follower"""
+        """Replicate a single key-value with version to one follower"""
         # simulate network lag
         delay_sec = random.uniform(self.min_delay_ms / 1000, self.max_delay_ms / 1000)
         await asyncio.sleep(delay_sec)
 
-        # internal endpoint on follower
+        # internal endpoint on follower - include version for consistency
         client = await self._get_client()
         url = f"http://{follower}/internal/replicate/{key}"
         try:
-            resp = await client.put(url, json={"value": value})
+            resp = await client.put(url, json={"value": value, "version": version})
             resp.raise_for_status()
             return True
         except Exception:
             return False
 
-    async def replicate(self, key: str, value: str) -> bool:
+    async def replicate(self, key: str, value: str, version: int) -> bool:
         """
         Returns True if write_quorum followers acknowledged,
         False otherwise.
         
         IMPORTANT: Returns as soon as quorum is reached!
         Remaining replications continue in the background.
+        
+        Version number ensures followers handle out-of-order delivery correctly.
         """
         if not self.followers or self.write_quorum <= 0:
             # degenerate case: no followers, or no quorum needed
             return True
 
-        # Create tasks for all followers
+        # Create tasks for all followers - include version for consistency
         tasks = [
-            asyncio.create_task(self._replicate_to_one(follower, key, value))
+            asyncio.create_task(self._replicate_to_one(follower, key, value, version))
             for follower in self.followers
         ]
 

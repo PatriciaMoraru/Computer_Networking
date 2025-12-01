@@ -20,6 +20,12 @@ class ValuePayload(BaseModel):
     value: str
 
 
+class ReplicatePayload(BaseModel):
+    """Payload for internal replication (includes version for consistency)"""
+    value: str
+    version: int
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "role": settings.role}
@@ -52,12 +58,12 @@ async def put_value(key: str, payload: ValuePayload):
             detail="Only the leader accepts writes",
         )
 
-    # 1) write on leader
-    store.put(key, payload.value)
+    # 1) write on leader - returns the new version number
+    version = store.put(key, payload.value)
 
-    # 2) replicate to followers (semi-synchronous)
+    # 2) replicate to followers (semi-synchronous) with version
     if replicator is not None:
-        ok = await replicator.replicate(key, payload.value)
+        ok = await replicator.replicate(key, payload.value, version)
         if not ok:
             # you might still consider the write 'durable enough',
             # but for the lab it's fine to surface an error
@@ -66,15 +72,19 @@ async def put_value(key: str, payload: ValuePayload):
                 detail="Write quorum not reached",
             )
 
-    return {"status": "ok", "key": key, "value": payload.value}
+    return {"status": "ok", "key": key, "value": payload.value, "version": version}
 
 
 # -------- Internal API (used by leader -> followers) --------
 
 @app.put("/internal/replicate/{key}")
-async def internal_replicate(key: str, payload: ValuePayload):
+async def internal_replicate(key: str, payload: ReplicatePayload):
     """
     Called by the leader. Followers apply the write locally.
+    
+    Uses versioning to handle out-of-order delivery:
+    - Only accepts updates with higher version numbers
+    - Rejects stale updates (prevents race conditions)
     """
     if settings.role != "follower":
         # if leader accidentally calls itself, or misconfig
@@ -83,5 +93,12 @@ async def internal_replicate(key: str, payload: ValuePayload):
             detail="This node is not a follower",
         )
 
-    store.put(key, payload.value)
-    return {"status": "replicated", "key": key}
+    # Use put_if_newer to handle race conditions
+    accepted = store.put_if_newer(key, payload.value, payload.version)
+    
+    return {
+        "status": "replicated" if accepted else "skipped_stale",
+        "key": key,
+        "version": payload.version,
+        "accepted": accepted
+    }

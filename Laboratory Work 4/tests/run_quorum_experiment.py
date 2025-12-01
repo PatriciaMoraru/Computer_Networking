@@ -40,6 +40,8 @@ class QuorumResult:
     median_latency_ms: float
     min_latency_ms: float
     max_latency_ms: float
+    p95_latency_ms: float
+    p99_latency_ms: float
     stdev_ms: float
     success_rate: float
     all_consistent: bool
@@ -115,9 +117,9 @@ def run_performance_test() -> Optional[QuorumResult]:
     print(output)
     
     # Parse CSV output line
-    # Format: avg_latency_ms,median_latency_ms,min_latency_ms,max_latency_ms,stdev_ms,success_rate
+    # Format: avg_latency_ms,median_latency_ms,min_latency_ms,max_latency_ms,p95_latency_ms,p99_latency_ms,stdev_ms,success_rate
     csv_match = re.search(
-        r'(\d+\.?\d*),(\d+\.?\d*),(\d+\.?\d*),(\d+\.?\d*),(\d+\.?\d*),(\d+\.?\d*)\s*$',
+        r'(\d+\.?\d*),(\d+\.?\d*),(\d+\.?\d*),(\d+\.?\d*),(\d+\.?\d*),(\d+\.?\d*),(\d+\.?\d*),(\d+\.?\d*)\s*$',
         output,
         re.MULTILINE
     )
@@ -135,8 +137,10 @@ def run_performance_test() -> Optional[QuorumResult]:
         median_latency_ms=float(csv_match.group(2)),
         min_latency_ms=float(csv_match.group(3)),
         max_latency_ms=float(csv_match.group(4)),
-        stdev_ms=float(csv_match.group(5)),
-        success_rate=float(csv_match.group(6)),
+        p95_latency_ms=float(csv_match.group(5)),
+        p99_latency_ms=float(csv_match.group(6)),
+        stdev_ms=float(csv_match.group(7)),
+        success_rate=float(csv_match.group(8)),
         all_consistent=all_consistent
     )
 
@@ -149,14 +153,15 @@ def save_results_csv(results: List[QuorumResult], output_file: str):
         writer = csv.writer(f)
         writer.writerow([
             'write_quorum', 'avg_latency_ms', 'median_latency_ms', 
-            'min_latency_ms', 'max_latency_ms', 'stdev_ms', 
-            'success_rate', 'all_consistent'
+            'min_latency_ms', 'max_latency_ms', 'p95_latency_ms', 'p99_latency_ms',
+            'stdev_ms', 'success_rate', 'all_consistent'
         ])
         for r in results:
             writer.writerow([
                 r.write_quorum, f"{r.avg_latency_ms:.2f}", f"{r.median_latency_ms:.2f}",
-                f"{r.min_latency_ms:.2f}", f"{r.max_latency_ms:.2f}", f"{r.stdev_ms:.2f}",
-                f"{r.success_rate:.2f}", r.all_consistent
+                f"{r.min_latency_ms:.2f}", f"{r.max_latency_ms:.2f}", 
+                f"{r.p95_latency_ms:.2f}", f"{r.p99_latency_ms:.2f}",
+                f"{r.stdev_ms:.2f}", f"{r.success_rate:.2f}", r.all_consistent
             ])
     
     print(f"\nResults saved to: {output_file}")
@@ -201,10 +206,10 @@ def main():
     print("SUMMARY")
     print("=" * 70)
     print()
-    print(f"{'Quorum':<10} {'Avg (ms)':<12} {'Median (ms)':<12} {'Max (ms)':<12} {'Consistent':<12}")
-    print("-" * 58)
+    print(f"{'Quorum':<8} {'Mean':<10} {'Median':<10} {'P95':<10} {'P99':<10} {'Consistent':<12}")
+    print("-" * 70)
     for r in results:
-        print(f"{r.write_quorum:<10} {r.avg_latency_ms:<12.2f} {r.median_latency_ms:<12.2f} {r.max_latency_ms:<12.2f} {'Yes' if r.all_consistent else 'No':<12}")
+        print(f"{r.write_quorum:<8} {r.avg_latency_ms:<10.1f} {r.median_latency_ms:<10.1f} {r.p95_latency_ms:<10.1f} {r.p99_latency_ms:<10.1f} {'Yes' if r.all_consistent else 'No':<12}")
     
     # Save to CSV
     if results:

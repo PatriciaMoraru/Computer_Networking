@@ -33,6 +33,8 @@ def load_results(csv_file: str) -> dict:
         'median_latency': [],
         'min_latency': [],
         'max_latency': [],
+        'p95_latency': [],
+        'p99_latency': [],
         'stdev': []
     }
     
@@ -44,81 +46,137 @@ def load_results(csv_file: str) -> dict:
             data['median_latency'].append(float(row['median_latency_ms']))
             data['min_latency'].append(float(row['min_latency_ms']))
             data['max_latency'].append(float(row['max_latency_ms']))
+            # Handle both old and new CSV formats
+            data['p95_latency'].append(float(row.get('p95_latency_ms', row.get('max_latency_ms', 0))))
+            data['p99_latency'].append(float(row.get('p99_latency_ms', row.get('max_latency_ms', 0))))
             data['stdev'].append(float(row['stdev_ms']))
     
     return data
 
 
 def plot_latency_chart(data: dict, output_file: str):
-    """Generate latency vs quorum chart"""
+    """Generate latency vs quorum chart with mean, median, p95, p99 - styled"""
     if not HAS_MATPLOTLIB:
         print("Cannot generate chart without matplotlib")
         return
     
-    fig, ax = plt.subplots(figsize=(10, 6))
+    # Try different style names for compatibility with different matplotlib versions
+    style_options = ['seaborn-v0_8-darkgrid', 'seaborn-darkgrid', 'ggplot', 'default']
+    for style in style_options:
+        try:
+            plt.style.use(style)
+            break
+        except OSError:
+            continue
+    
+    fig, ax = plt.subplots(figsize=(12, 7))
+    
+    # Set dark background for modern look
+    fig.patch.set_facecolor('#1a1a2e')
+    ax.set_facecolor('#16213e')
     
     quorum = data['quorum']
-    avg_lat = data['avg_latency']
-    stdev = data['stdev']
     
-    # Plot with error bars
-    ax.errorbar(
-        quorum, avg_lat, yerr=stdev,
-        marker='o', markersize=10, linewidth=2, capsize=5,
-        color='#2563eb', ecolor='#93c5fd',
-        label='Average Latency (± std dev)'
-    )
+    # Convert to seconds for cleaner display
+    mean_s = [x / 1000 for x in data['avg_latency']]
+    median_s = [x / 1000 for x in data['median_latency']]
+    p95_s = [x / 1000 for x in data['p95_latency']]
+    p99_s = [x / 1000 for x in data['p99_latency']]
     
-    # Also show median as secondary line
-    ax.plot(
-        quorum, data['median_latency'],
-        marker='s', markersize=8, linewidth=2, linestyle='--',
-        color='#16a34a', alpha=0.7,
-        label='Median Latency'
-    )
+    # Vibrant color palette
+    colors = {
+        'mean': '#00d4ff',      # Cyan
+        'median': '#ff6b6b',    # Coral
+        'p95': '#4ecdc4',       # Teal
+        'p99': '#ffe66d',       # Yellow
+    }
+    
+    # Plot with glow effect (plot twice - thick transparent + thin solid)
+    for metric, values, color, marker, label in [
+        ('mean', mean_s, colors['mean'], 'o', 'Mean'),
+        ('median', median_s, colors['median'], 's', 'Median'),
+        ('p95', p95_s, colors['p95'], '^', 'P95'),
+        ('p99', p99_s, colors['p99'], 'D', 'P99'),
+    ]:
+        # Glow effect
+        ax.plot(quorum, values, marker=marker, markersize=12, linewidth=6,
+                color=color, alpha=0.3)
+        # Main line
+        ax.plot(quorum, values, marker=marker, markersize=8, linewidth=2.5,
+                color=color, label=label, markeredgecolor='white', markeredgewidth=1)
     
     # Styling
-    ax.set_xlabel('Write Quorum', fontsize=12, fontweight='bold')
-    ax.set_ylabel('Latency (ms)', fontsize=12, fontweight='bold')
-    ax.set_title('Write Latency vs. Write Quorum\n(Single-Leader Replication)', fontsize=14, fontweight='bold')
+    title_color = '#ffffff'
+    label_color = '#e0e0e0'
     
+    ax.set_xlabel('Write Quorum', fontsize=14, fontweight='bold', color=label_color)
+    ax.set_ylabel('Latency (seconds)', fontsize=14, fontweight='bold', color=label_color)
+    ax.set_title('Quorum vs. Latency Performance\nSingle-Leader Replication with Random Delay [0, 1000ms]', 
+                 fontsize=16, fontweight='bold', color=title_color, pad=20)
+    
+    # X-axis labels
     ax.set_xticks(quorum)
-    ax.grid(True, alpha=0.3)
-    ax.legend(loc='upper left')
+    ax.set_xticklabels([f'Q={q}' for q in quorum], fontsize=12, color=label_color)
+    ax.tick_params(axis='y', colors=label_color, labelsize=11)
     
-    # Add annotations
-    for i, (q, lat) in enumerate(zip(quorum, avg_lat)):
-        ax.annotate(
-            f'{lat:.1f}ms',
-            (q, lat),
-            textcoords="offset points",
-            xytext=(0, 15),
-            ha='center',
-            fontsize=9,
-            color='#1e40af'
-        )
+    # Grid styling
+    ax.grid(True, alpha=0.2, color='#ffffff', linestyle='--')
+    ax.set_axisbelow(True)
+    
+    # Legend with custom styling
+    legend = ax.legend(loc='upper left', fontsize=11, framealpha=0.9,
+                       facecolor='#2d3a4f', edgecolor='#4a5568')
+    for text in legend.get_texts():
+        text.set_color('#ffffff')
+    
+    # Add subtle border
+    for spine in ax.spines.values():
+        spine.set_color('#4a5568')
+        spine.set_linewidth(1.5)
+    
+    # Add annotation for key insight
+    max_quorum_idx = len(quorum) - 1
+    ax.annotate(
+        f'  {p99_s[max_quorum_idx]:.2f}s',
+        xy=(quorum[max_quorum_idx], p99_s[max_quorum_idx]),
+        xytext=(quorum[max_quorum_idx] + 0.15, p99_s[max_quorum_idx]),
+        fontsize=10, color=colors['p99'], fontweight='bold',
+        ha='left', va='center'
+    )
+    ax.annotate(
+        f'  {mean_s[0]:.2f}s',
+        xy=(quorum[0], mean_s[0]),
+        xytext=(quorum[0] - 0.15, mean_s[0]),
+        fontsize=10, color=colors['mean'], fontweight='bold',
+        ha='right', va='center'
+    )
     
     plt.tight_layout()
     
     # Save
     os.makedirs(os.path.dirname(output_file) or '.', exist_ok=True)
-    plt.savefig(output_file, dpi=150, bbox_inches='tight')
+    plt.savefig(output_file, dpi=200, bbox_inches='tight', 
+                facecolor=fig.get_facecolor(), edgecolor='none')
     print(f"Chart saved to: {output_file}")
+    
+    # Reset style for future plots
+    plt.style.use('default')
 
 
 def print_text_chart(data: dict):
     """Print a simple ASCII chart for environments without matplotlib"""
-    print("\n" + "=" * 60)
-    print("LATENCY vs QUORUM (text chart)")
-    print("=" * 60)
+    print("\n" + "=" * 70)
+    print("LATENCY vs QUORUM")
+    print("=" * 70)
+    print(f"{'Quorum':<8} {'Mean':<12} {'Median':<12} {'P95':<12} {'P99':<12}")
+    print("-" * 70)
     
-    max_lat = max(data['avg_latency'])
-    bar_width = 40
-    
-    for q, lat in zip(data['quorum'], data['avg_latency']):
-        bar_len = int((lat / max_lat) * bar_width) if max_lat > 0 else 0
-        bar = "█" * bar_len
-        print(f"Quorum {q}: {bar} {lat:.2f} ms")
+    for i, q in enumerate(data['quorum']):
+        mean = data['avg_latency'][i]
+        median = data['median_latency'][i]
+        p95 = data['p95_latency'][i] if data['p95_latency'] else 0
+        p99 = data['p99_latency'][i] if data['p99_latency'] else 0
+        print(f"Q={q:<5} {mean:<12.1f} {median:<12.1f} {p95:<12.1f} {p99:<12.1f}")
     
     print()
 
@@ -135,11 +193,13 @@ def main():
         print("\nGenerating demo chart with sample data...")
         demo_data = {
             'quorum': [1, 2, 3, 4, 5],
-            'avg_latency': [45.0, 85.0, 150.0, 280.0, 420.0],
-            'median_latency': [40.0, 80.0, 140.0, 260.0, 400.0],
+            'avg_latency': [150.0, 300.0, 500.0, 600.0, 800.0],
+            'median_latency': [140.0, 280.0, 480.0, 580.0, 780.0],
             'min_latency': [20.0, 40.0, 60.0, 100.0, 150.0],
-            'max_latency': [100.0, 180.0, 320.0, 500.0, 800.0],
-            'stdev': [15.0, 30.0, 60.0, 100.0, 150.0]
+            'max_latency': [400.0, 600.0, 900.0, 950.0, 1000.0],
+            'p95_latency': [350.0, 550.0, 850.0, 900.0, 980.0],
+            'p99_latency': [380.0, 580.0, 880.0, 940.0, 995.0],
+            'stdev': [80.0, 120.0, 150.0, 140.0, 100.0]
         }
         print_text_chart(demo_data)
         if HAS_MATPLOTLIB:
